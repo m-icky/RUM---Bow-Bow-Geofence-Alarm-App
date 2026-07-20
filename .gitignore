@@ -1,0 +1,19 @@
+# Expo cache and build outputs
+.expo/
+dist/
+web-build/
+
+# Package dependencies
+node_modules/
+
+# Local environment configuration
+.env*.local
+
+# Package logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local native build directories
+android/
+ios/

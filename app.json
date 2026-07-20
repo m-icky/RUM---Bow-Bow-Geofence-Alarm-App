@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Rum",
+    "slug": "rum-alarm-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./rum.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./rum.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1c1412"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.rum",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Rum needs to access your location to alert you when entering your geofence boundary.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Rum needs background location access to trigger the alarm even when your screen is locked.",
+        "NSLocationAlwaysUsageDescription": "Rum needs background location access to trigger the alarm even when your screen is locked.",
+        "UIBackgroundModes": [
+          "location",
+          "audio"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./rum.png",
+        "backgroundColor": "#1c1412"
+      },
+      "package": "com.example.rum",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "WAKE_LOCK"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysPermission": "Allow Rum to track location in the background for commuter alarms."
+        }
+      ]
+    ]
+  }
+}
