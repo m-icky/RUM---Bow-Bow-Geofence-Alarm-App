@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, FlatList, Share, Platform, StatusBar, Alert } from 'react-native';
-import MapView, { Marker, Circle, Polyline } from 'react-native-maps';
+import MapView, { Marker, Circle, Polyline, UrlTile } from 'react-native-maps';
+import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -42,9 +43,16 @@ export default function DashboardScreen({
   onNavigate,
   alarms = [],
   onDeleteAlarm,
-  onUpdateAlarm
+  onUpdateAlarm,
+  companionType = 'dog',
+  companionName = 'Rum'
 }) {
   const { colors } = useTheme();
+
+  // Dynamic companion sound text
+  const companionSound = {
+    dog: 'Bow-Bow', cat: 'Meow-Meow', rabbit: 'Thump-Thump', bird: 'Tweet-Tweet', fish: 'Glub-Glub'
+  }[companionType] || 'Bow-Bow';
 
   // Local state
   const [localRadius, setLocalRadius] = useState(radius);
@@ -82,6 +90,29 @@ export default function DashboardScreen({
   
   // Collapse toggle
   const [isDeckMinimized, setIsDeckMinimized] = useState(false);
+
+  const toggleDeck = () => {
+    setIsDeckMinimized(!isDeckMinimized);
+  };
+
+  const cardAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      height: withTiming(isDeckMinimized ? 0 : 120, { duration: 500 }),
+      opacity: withTiming(isDeckMinimized ? 0 : 1, { duration: 500 }),
+      marginBottom: withTiming(isDeckMinimized ? 0 : 10, { duration: 500 }),
+      overflow: 'hidden',
+    };
+  });
+
+  const arrowAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        {
+          rotate: withTiming(isDeckMinimized ? '180deg' : '0deg', { duration: 300 }),
+        },
+      ],
+    };
+  });
 
   // Live GPS tracking subscription for moving commuters
   useEffect(() => {
@@ -158,7 +189,7 @@ export default function DashboardScreen({
   const shareLocation = async () => {
     try {
       await Share.share({
-        message: `Rum Geofence Alarm Location: ${localDestName} (https://maps.google.com/?q=${localDestCoords.latitude},${localDestCoords.longitude})`,
+        message: `${companionName} Geofence Alarm Location: ${localDestName} (https://maps.google.com/?q=${localDestCoords.latitude},${localDestCoords.longitude})`,
       });
     } catch (e) {
       console.error(e);
@@ -555,8 +586,8 @@ export default function DashboardScreen({
 
   const confirmDelete = (id) => {
     Alert.alert(
-      "Delete Bow-Bow Alarm",
-      "Are you sure you want to remove this active Bow-Bow alarm?",
+      `Delete ${companionSound} Alarm`,
+      `Are you sure you want to remove this active ${companionSound} alarm?`,
       [
         { text: "Cancel", style: "cancel" },
         { text: "Delete", style: "destructive", onPress: () => {
@@ -599,10 +630,10 @@ export default function DashboardScreen({
             <View style={styles.userAvatar}>
               <Ionicons name="person" size={14} color={colors.text} />
             </View>
-            <Text style={[styles.userNameText, { color: colors.text }]}>Rum Bow-Bow</Text>
+            <Text style={[styles.userNameText, { color: colors.text }]}>{companionName} {companionSound}</Text>
           </View>
           <TouchableOpacity style={styles.departToggle}>
-            <Text style={{ color: colors.accent, fontSize: 11, fontWeight: '700' }}>Bow-Bow 🐾</Text>
+            <Text style={{ color: colors.accent, fontSize: 11, fontWeight: '700' }}>{companionSound} 🐾</Text>
           </TouchableOpacity>
         </View>
 
@@ -698,6 +729,7 @@ export default function DashboardScreen({
         <MapView
           ref={(ref) => setMapRef(ref)}
           style={styles.map}
+          mapType={Platform.OS === 'android' ? 'none' : 'standard'}
           initialRegion={{
             latitude: localDestCoords.latitude,
             longitude: localDestCoords.longitude,
@@ -709,6 +741,13 @@ export default function DashboardScreen({
           toolbarEnabled={false}
           showsMyLocationButton={false}
         >
+          {Platform.OS === 'android' && (
+            <UrlTile
+              urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+              maximumZ={19}
+              flipY={false}
+            />
+          )}
           {/* Winding road route line polyline */}
           <Polyline
             coordinates={routePath}
@@ -812,40 +851,40 @@ export default function DashboardScreen({
         {/* Collapsible details header */}
         <View style={[styles.deckHeader, {display:"flex", flexDirection:"row", alignItems:"center"} ]}>
           <Text style={[styles.sectionHeading, { color: colors.textSecondary, marginBottom: 0 }]}>Route Details</Text>
-          <TouchableOpacity onPress={() => setIsDeckMinimized(!isDeckMinimized)} style={{ padding: 4 }}>
-            <Ionicons name={isDeckMinimized ? "chevron-up" : "chevron-down"} size={20} color={colors.accent} />
+          <TouchableOpacity onPress={toggleDeck} style={{ padding: 4 }}>
+            <Animated.View style={arrowAnimatedStyle}>
+              <Ionicons name="chevron-down" size={20} color={colors.accent} />
+            </Animated.View>
           </TouchableOpacity>
         </View>
         
-        {!isDeckMinimized && (
-          <View style={[styles.routeDetailsCard, { backgroundColor: colors.surfaceOpaque }]}>
-            <View style={styles.detailsRow}>
-              <View style={styles.detailsCell}>
-                <Ionicons name="resize-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-                <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Total Distance</Text>
-              </View>
-              <Text style={[styles.detailsVal, { color: colors.text }]}>{formatDistance(routeDistance)}</Text>
+        <Animated.View style={[styles.routeDetailsCard, { backgroundColor: colors.surfaceOpaque }, cardAnimatedStyle]}>
+          <View style={styles.detailsRow}>
+            <View style={styles.detailsCell}>
+              <Ionicons name="resize-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+              <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Total Distance</Text>
             </View>
-            <View style={[styles.divider, { backgroundColor: 'rgba(255,255,255,0.04)' }]} />
-            
-            <View style={styles.detailsRow}>
-              <View style={styles.detailsCell}>
-                <Ionicons name="time-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-                <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Est. Commute Time</Text>
-              </View>
-              <Text style={[styles.detailsVal, { color: colors.text }]}>{formatRouteDuration(routeDistance)}</Text>
-            </View>
-            <View style={[styles.divider, { backgroundColor: 'rgba(255,255,255,0.04)' }]} />
-            
-            <View style={styles.detailsRow}>
-              <View style={styles.detailsCell}>
-                <Ionicons name="speedometer-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-                <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Average Speed</Text>
-              </View>
-              <Text style={[styles.detailsVal, { color: colors.text }]}>60 km/h</Text>
-            </View>
+            <Text style={[styles.detailsVal, { color: colors.text }]}>{formatDistance(routeDistance)}</Text>
           </View>
-        )}
+          <View style={[styles.divider, { backgroundColor: 'rgba(255,255,255,0.04)' }]} />
+          
+          <View style={styles.detailsRow}>
+            <View style={styles.detailsCell}>
+              <Ionicons name="time-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+              <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Est. Commute Time</Text>
+            </View>
+            <Text style={[styles.detailsVal, { color: colors.text }]}>{formatRouteDuration(routeDistance)}</Text>
+          </View>
+          <View style={[styles.divider, { backgroundColor: 'rgba(255,255,255,0.04)' }]} />
+          
+          <View style={styles.detailsRow}>
+            <View style={styles.detailsCell}>
+              <Ionicons name="speedometer-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+              <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Average Speed</Text>
+            </View>
+            <Text style={[styles.detailsVal, { color: colors.text }]}>60 km/h</Text>
+          </View>
+        </Animated.View>
 
         {/* Configurations inputs */}
         <View style={styles.column}>
@@ -868,6 +907,46 @@ export default function DashboardScreen({
             />
           </View>
         </View>
+        {showMascotTips && (
+          <View style={styles.mascotTipRow}>
+            <MascotRum state="idle" type={companionType} width={60} height={30} />
+            <View style={[styles.mascotTipBubble, { backgroundColor: colors.surfaceOpaque, borderColor: colors.surface }]}>
+              <Text style={[styles.mascotTipText, { color: colors.text }]}>
+                {(() => {
+                  const tips = {
+                    dog: {
+                      tight: "That's a tight perimeter! I'll bark extra loud so you don't miss it! 🔊",
+                      wide: "Whoa, big radius! Plenty of time to stretch before we arrive! 🐾",
+                      normal: "Looking good! I'll keep my nose on the route for you! 👃",
+                    },
+                    cat: {
+                      tight: "Tiny zone? I'll pounce on that alarm the second we're close! 🐾",
+                      wide: "Such a wide area… perfect for a catnap on the way! 😸",
+                      normal: "I've got my whiskers tuned to this route. Purr-fect! 🐱",
+                    },
+                    rabbit: {
+                      tight: "Small hop zone! I'll thump my feet the moment we arrive! 🐰",
+                      wide: "Lots of room to hop around before we get there! 🥕",
+                      normal: "Ears up and listening! We'll hop there in no time! 🐇",
+                    },
+                    bird: {
+                      tight: "Narrow landing zone! I'll chirp loud when it's time! 🐦",
+                      wide: "Wide airspace! I can circle around for a while! 🪶",
+                      normal: "Wings spread and gliding along the route! Tweet tweet! 🎶",
+                    },
+                    fish: {
+                      tight: "Shallow waters ahead! I'll splash when we're close! 🐠",
+                      wide: "Deep ocean of distance! Time to swim at ease! 🌊",
+                      normal: "Swimming smoothly along the current! Glub glub! 💧",
+                    },
+                  };
+                  const t = tips[companionType] || tips.dog;
+                  return localRadius < 500 ? t.tight : localRadius > 3000 ? t.wide : t.normal;
+                })()}
+              </Text>
+            </View>
+          </View>
+        )}
 
         <TouchableOpacity style={[styles.armBtn, { backgroundColor: colors.accent }]} onPress={handleMainBtnPress}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -918,8 +997,8 @@ export default function DashboardScreen({
           <Text style={[styles.navText, { color: colors.textSecondary }]}>Sounds</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('settings')}>
-          <Ionicons name="color-palette" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Themes</Text>
+          <Ionicons name="settings" size={20} color={colors.textSecondary} />
+          <Text style={[styles.navText, { color: colors.textSecondary }]}>Settings</Text>
         </TouchableOpacity>
       </View>
 
@@ -1265,5 +1344,23 @@ const styles = StyleSheet.create({
   toastText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  mascotTipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    paddingHorizontal: 4,
+  },
+  mascotTipBubble: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  mascotTipText: {
+    fontSize: 8,
+    fontWeight: '500',
+    lineHeight: 16,
   },
 });

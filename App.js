@@ -1,8 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, SafeAreaView, StatusBar, Text, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, SafeAreaView, StatusBar, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { ThemeProvider, useTheme } from './src/components/ThemeContext';
+
+// Configure notification behavior (show even when app is in foreground)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 // Import Screens
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -101,6 +111,66 @@ function MainAppShell() {
     checkCrashLog();
   }, []);
 
+  // Request notification permissions on mount
+  useEffect(() => {
+    const setupNotifications = async () => {
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus !== 'granted') {
+          console.log('Notification permission not granted');
+        }
+        // Android notification channel
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('alarm-channel', {
+            name: 'Geofence Alarms',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            sound: 'default',
+          });
+        }
+      } catch (e) {
+        console.error('Notification setup error:', e);
+      }
+    };
+    setupNotifications();
+  }, []);
+
+  // Send a local alarm notification with companion-specific text
+  const sendAlarmNotification = async (alarmName, cType, cName) => {
+    const soundMap = {
+      dog: 'Bow-Bow', cat: 'Meow-Meow', rabbit: 'Thump-Thump', bird: 'Tweet-Tweet', fish: 'Glub-Glub'
+    };
+    const sound = soundMap[cType] || 'Bow-Bow';
+    const name = cName || 'Rum';
+
+    const wakeMessages = {
+      dog: `🐶 ${name} is barking: "${sound}! ${sound}!" You're reaching ${alarmName}! Wake up! Wake up!`,
+      cat: `🐱 ${name} is meowing: "${sound}! ${sound}!" You're reaching ${alarmName}! Wake up! Wake up!`,
+      rabbit: `🐰 ${name} is thumping: "${sound}! ${sound}!" You're reaching ${alarmName}! Wake up! Wake up!`,
+      bird: `🐦 ${name} is chirping: "${sound}! ${sound}!" You're reaching ${alarmName}! Wake up! Wake up!`,
+      fish: `🐠 ${name} is splashing: "${sound}! ${sound}!" You're reaching ${alarmName}! Wake up! Wake up!`,
+    };
+
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `🚨 ${name} says: Wake up!`,
+          body: wakeMessages[cType] || wakeMessages.dog,
+          sound: 'default',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+        },
+        trigger: null, // fire immediately
+      });
+    } catch (e) {
+      console.error('Failed to send notification:', e);
+    }
+  };
+
   // Navigation stack: splash, dashboard, tracking, ringing, sounds, settings
   const [currentScreen, setCurrentScreen] = useState('splash');
   
@@ -111,10 +181,17 @@ function MainAppShell() {
   const [customAudioName, setCustomAudioName] = useState('');
   const [volume, setVolume] = useState(0.8);
   const [showMascotTips, setShowMascotTips] = useState(true);
+  const [companionType, setCompanionType] = useState('dog');
+  const [companionName, setCompanionName] = useState('Rum');
   
   // Multiple alarms states
   const [alarms, setAlarms] = useState([]);
   const [triggeredAlarm, setTriggeredAlarm] = useState(null);
+  const triggeredAlarmRef = useRef(null);
+
+  useEffect(() => {
+    triggeredAlarmRef.current = triggeredAlarm;
+  }, [triggeredAlarm]);
   
   // Coordinate values
   const [currentCoords, setCurrentCoords] = useState({ latitude: 8.5241, longitude: 76.9366 }); // Default Trivandrum
@@ -136,6 +213,8 @@ function MainAppShell() {
           if (data.showMascotTips !== undefined) setShowMascotTips(data.showMascotTips);
           if (data.destCoords !== undefined) setDestCoords(data.destCoords);
           if (data.destName !== undefined) setDestName(data.destName);
+          if (data.companionType !== undefined) setCompanionType(data.companionType);
+          if (data.companionName !== undefined) setCompanionName(data.companionName);
         }
         
         const rawAlarms = await AsyncStorage.getItem('rum_active_alarms');
@@ -153,7 +232,7 @@ function MainAppShell() {
   const saveState = async (updates = {}) => {
     try {
       const stateObj = {
-        radius, activeTone, customAudioData, customAudioName, volume, showMascotTips, destCoords, destName,
+        radius, activeTone, customAudioData, customAudioName, volume, showMascotTips, destCoords, destName, companionType, companionName,
         ...updates
       };
       await AsyncStorage.setItem('rum_app_state', JSON.stringify(stateObj));
@@ -214,12 +293,14 @@ function MainAppShell() {
             setCurrentCoords(coords);
 
             // Verify if user is inside the geofence perimeter of ANY active alarm
-            if (alarms && alarms.length > 0) {
+            if (!triggeredAlarmRef.current && alarms && alarms.length > 0) {
               for (const alarm of alarms) {
                 if (alarm.isActive) {
                   const dist = getDistance(coords, alarm.coords);
                   if (dist <= alarm.radius) {
+                    triggeredAlarmRef.current = alarm;
                     setTriggeredAlarm(alarm);
+                    sendAlarmNotification(alarm.name, companionType, companionName);
                     navigateTo('ringing');
                     break; // stop checking others on trigger
                   }
@@ -273,6 +354,22 @@ function MainAppShell() {
     AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
   };
 
+  const triggerAlarm = () => {
+    const activeAlarm = alarms.find(a => a.isActive) || {
+      id: 'mock',
+      name: destName,
+      coords: destCoords,
+      radius: radius,
+      isActive: true
+    };
+    if (!triggeredAlarmRef.current) {
+      triggeredAlarmRef.current = activeAlarm;
+      setTriggeredAlarm(activeAlarm);
+      sendAlarmNotification(activeAlarm.name, companionType, companionName);
+      navigateTo('ringing');
+    }
+  };
+
   const dismissAlarm = () => {
     if (triggeredAlarm) {
       // Toggle triggered alarm to inactive so it does not loop trigger
@@ -315,14 +412,16 @@ function MainAppShell() {
                 <Text style={[styles.logoText, { color: colors.text }]}>🐾</Text>
               </View>
             </View>
-            <Text style={[styles.appName, { color: colors.text }]}>RUM</Text>
-            <Text style={[styles.appSubtitle, { color: colors.accent }]}>BOW-BOW ALARM</Text>
+            <Text style={[styles.appName, { color: colors.text }]}>{(companionName || 'RUM').toUpperCase()}</Text>
+            <Text style={[styles.appSubtitle, { color: colors.accent }]}>
+              {{ dog: 'BOW-BOW', cat: 'MEOW-MEOW', rabbit: 'THUMP-THUMP', bird: 'TWEET-TWEET', fish: 'GLUB-GLUB' }[companionType] || 'BOW-BOW'} ALARM
+            </Text>
             
             <View style={styles.splashMascot}>
-              <MascotRum state="sleeping" width={220} height={100} />
+              <MascotRum state="sleeping" type={companionType} width={220} height={100} />
             </View>
             
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Waking up Rum...</Text>
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Waking up {companionName || 'Rum'}...</Text>
           </View>
         );
       
@@ -339,6 +438,8 @@ function MainAppShell() {
             alarms={alarms}
             onDeleteAlarm={deleteAlarm}
             onUpdateAlarm={updateAlarm}
+            companionType={companionType}
+            companionName={companionName || 'Rum'}
           />
         );
 
@@ -354,6 +455,7 @@ function MainAppShell() {
             volume={volume}
             onDisarm={disarmAlarm}
             onTriggerAlarm={triggerAlarm}
+            companionType={companionType}
           />
         );
 
@@ -367,6 +469,7 @@ function MainAppShell() {
             volume={volume}
             onDismiss={dismissAlarm}
             onSnooze={snoozeAlarm}
+            companionType={companionType}
           />
         );
 
@@ -388,6 +491,7 @@ function MainAppShell() {
               saveState({ volume: vol });
             }}
             onNavigate={navigateTo}
+            companionName={companionName || 'Rum'}
           />
         );
 
@@ -400,6 +504,16 @@ function MainAppShell() {
               saveState({ showMascotTips: val });
             }}
             onNavigate={navigateTo}
+            companionType={companionType}
+            companionName={companionName || 'Rum'}
+            onSaveCompanion={(val) => {
+              setCompanionType(val);
+              saveState({ companionType: val });
+            }}
+            onSaveCompanionName={(val) => {
+              setCompanionName(val);
+              saveState({ companionName: val });
+            }}
           />
         );
 

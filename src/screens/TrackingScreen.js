@@ -14,7 +14,8 @@ export default function TrackingScreen({
   customAudioData,
   volume,
   onDisarm,
-  onTriggerAlarm
+  onTriggerAlarm,
+  companionType = 'dog'
 }) {
   const { colors } = useTheme();
 
@@ -169,10 +170,18 @@ export default function TrackingScreen({
 
         {/* Jogging Mascot Companion */}
         <View style={styles.mascotArea}>
-          <MascotRum state="running" width={220} height={100} />
+          <MascotRum state="running" type={companionType} width={220} height={100} />
           <View style={[styles.speechBubble, { backgroundColor: colors.accent }]}>
             <Text style={styles.speechBubbleText}>
-              {`“Sniffing out the route... we're ${formatDistance(distanceToBoundary)} away!”`}
+              {(() => {
+                switch (companionType) {
+                  case 'cat': return `“Hunting down the route... we're ${formatDistance(distanceToBoundary)} away! 🐾”`;
+                  case 'rabbit': return `“Hopping along the route... we're ${formatDistance(distanceToBoundary)} away! 🐰”`;
+                  case 'bird': return `“Flying over the route... we're ${formatDistance(distanceToBoundary)} away! 🐦”`;
+                  case 'fish': return `“Swimming along the route... we're ${formatDistance(distanceToBoundary)} away! 🐠”`;
+                  default: return `“Sniffing out the route... we're ${formatDistance(distanceToBoundary)} away! 🐕”`;
+                }
+              })()}
             </Text>
           </View>
         </View>

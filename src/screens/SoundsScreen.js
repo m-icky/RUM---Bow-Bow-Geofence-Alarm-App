@@ -13,8 +13,8 @@ const TONES_MAP = {
   breeze: require('../../assets/sounds/breeze.wav'),
 };
 
-const TONES = [
-  { id: 'bark', name: "Rum's Playful Bark", desc: 'Synthesized dog bark alert' },
+const TONES_BASE = [
+  { id: 'bark', name: "'s Playful Bark", desc: 'Synthesized dog bark alert' },
   { id: 'radar', name: 'Digital Radar', desc: 'Rapid synth notification beeps' },
   { id: 'chimes', name: 'Melodic Chimes', desc: 'Sweet, gentle crystal sweeps' },
   { id: 'breeze', name: 'Siren Pulse', desc: 'Alternating frequency wake-up call' },
@@ -27,9 +27,12 @@ export default function SoundsScreen({
   customAudioData,
   onSaveSound,
   onSaveVolume,
-  onNavigate
+  onNavigate,
+  companionName = 'Rum'
 }) {
   const { colors } = useTheme();
+
+  const TONES = TONES_BASE.map(t => t.id === 'bark' ? { ...t, name: `${companionName}'s Playful Bark` } : t);
   const [localTone, setLocalTone] = useState(activeTone);
   const [localVolume, setLocalVolume] = useState(volume);
   const [previewSound, setPreviewSound] = useState(null);
@@ -216,8 +219,8 @@ export default function SoundsScreen({
           <Text style={[styles.navText, { color: colors.accent }]}>Sounds</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('settings')}>
-          <Ionicons name="color-palette" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Themes</Text>
+          <Ionicons name="settings" size={20} color={colors.textSecondary} />
+          <Text style={[styles.navText, { color: colors.textSecondary }]}>Settings</Text>
         </TouchableOpacity>
       </View>
 

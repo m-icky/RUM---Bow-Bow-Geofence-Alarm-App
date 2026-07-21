@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View, TouchableWithoutFeedback } from 'react-native';
-import Svg, { Path, Rect, Circle, Ellipse, G, Text as SvgText } from 'react-native-svg';
+import Svg, { Path, Rect, Circle, Ellipse, G, Line, Text as SvgText } from 'react-native-svg';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -14,7 +14,7 @@ import { useTheme } from './ThemeContext';
 
 const AnimatedG = Animated.createAnimatedComponent(G);
 
-export default function MascotRum({ state = 'idle', width = 180, height = 120, onBarkComplete }) {
+export default function MascotRum({ state = 'idle', type = 'dog', width = 180, height = 120, onBarkComplete }) {
   const { colors } = useTheme();
 
   // Reanimated shared values
@@ -29,7 +29,8 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
   const z1Y = useSharedValue(0);
   const z2Alpha = useSharedValue(0);
   const z2Y = useSharedValue(0);
-  const flip = useSharedValue(0);
+  const flip = useSharedValue(1.0);
+  const jumpY = useSharedValue(0);
   const isFlipping = useRef(false);
 
   useEffect(() => {
@@ -45,6 +46,8 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
     z1Y.value = 0;
     z2Alpha.value = 0;
     z2Y.value = 0;
+    flip.value = 1.0;
+    jumpY.value = 0;
 
     if (state === 'sleeping') {
       // Slow breathing
@@ -170,7 +173,13 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
   }));
 
   const animFlip = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${flip.value}deg` }]
+    transform: [
+      { translateX: 150 },
+      { translateY: 60 + jumpY.value },
+      { scale: flip.value },
+      { translateX: -150 },
+      { translateY: -60 }
+    ]
   }));
 
   const triggerFlip = () => {
@@ -182,12 +191,23 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
       onBarkComplete();
     }
     
-    flip.value = withTiming(360, { duration: 800, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }, (finished) => {
-      if (finished) {
-        flip.value = 0;
-        runOnJS(() => { isFlipping.current = false; })();
-      }
-    });
+    // Hop the entire dog up and down using jumpY
+    jumpY.value = withSequence(
+      withTiming(-30, { duration: 150 }),
+      withTiming(0, { duration: 150 })
+    );
+
+    // Bounce scale using flip
+    flip.value = withSequence(
+      withTiming(1.15, { duration: 120 }), // Stretch up
+      withTiming(0.85, { duration: 120 }), // Squish on land
+      withTiming(1.0, { duration: 150 })  // Reset
+    );
+
+    // Reset flipping flag safely on the JS thread after animation finishes
+    setTimeout(() => {
+      isFlipping.current = false;
+    }, 400);
   };
 
   return (
@@ -208,94 +228,241 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
               </G>
             )}
 
-            <G id="dog-body-group">
-              {/* Tail */}
-              <AnimatedG style={animTail}>
-                <Path
-                  d="M210 60 Q225 55 220 40"
-                  stroke={colors.dogPrimary}
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-              </AnimatedG>
-
-              {/* Legs Shadow (behind) */}
-              <Rect x="189" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
-              <Rect x="156" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
-
-              {/* Body */}
-              <AnimatedG style={animBody}>
-                <Rect
-                  x="140"
-                  y="55"
-                  width="70"
-                  height="25"
-                  rx="10"
-                  fill={colors.dogPrimary}
-                />
-              </AnimatedG>
-
-              {/* Back Leg Main */}
-              <AnimatedG style={animLegBack}>
-                <Rect
-                  x="195"
-                  y="80"
-                  width="8"
-                  height="15"
-                  rx="3"
-                  fill={colors.dogPrimary}
-                />
-              </AnimatedG>
-
-              {/* Collar & Tag */}
-              <Rect
-                x="140"
-                y="50"
-                width="6"
-                height="26"
-                rx="2"
-                fill={colors.accent}
-                transform="rotate(-15 140 50)"
-              />
-              <Circle cx="140" cy="74" r="3.5" fill="#F1C40F" />
-
-              {/* Front Leg Main */}
-              <AnimatedG style={animLegFront}>
-                <Rect
-                  x="150"
-                  y="80"
-                  width="8"
-                  height="15"
-                  rx="3"
-                  fill={colors.dogPrimary}
-                />
-              </AnimatedG>
-
-              {/* Head & Face */}
-              <AnimatedG style={animHead}>
-                <Ellipse cx="140" cy="50" rx="20" ry="15" fill={colors.dogPrimary} />
-                {/* Snout */}
-                <Path d="M120 50 Q110 50 110 55 Q115 62 130 58 Z" fill={colors.dogPrimary} />
-                <Circle cx="110" cy="53" r="3" fill="#2d221e" />
-
-                {/* Ear */}
-                <AnimatedG style={animEar}>
+            {type === 'dog' && (
+              <G id="dog-body-group">
+                {/* Tail */}
+                <AnimatedG style={animTail}>
                   <Path
-                    d="M140 42 C150 42, 152 70, 142 70 C132 70, 135 42, 140 42"
-                    fill={colors.dogSecondary}
+                    d="M210 60 Q225 55 220 40"
+                    stroke={colors.dogPrimary}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    fill="none"
                   />
                 </AnimatedG>
 
-                {/* Eye (adjusts if sleeping or awake) */}
-                {state === 'sleeping' ? (
-                  <Path d="M128 48 Q130 50 132 48" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                ) : (
-                  <Circle cx="130" cy="48" r="2.5" fill="#000" />
-                )}
-              </AnimatedG>
+                {/* Legs Shadow (behind) */}
+                <Rect x="189" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
+                <Rect x="156" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
 
-            </G>
+                {/* Body */}
+                <AnimatedG style={animBody}>
+                  <Rect
+                    x="140"
+                    y="55"
+                    width="70"
+                    height="25"
+                    rx="10"
+                    fill={colors.dogPrimary}
+                  />
+                </AnimatedG>
+
+                {/* Back Leg Main */}
+                <AnimatedG style={animLegBack}>
+                  <Rect
+                    x="195"
+                    y="80"
+                    width="8"
+                    height="15"
+                    rx="3"
+                    fill={colors.dogPrimary}
+                  />
+                </AnimatedG>
+
+                {/* Collar & Tag */}
+                <Rect
+                  x="140"
+                  y="50"
+                  width="6"
+                  height="26"
+                  rx="2"
+                  fill={colors.accent}
+                  transform="rotate(-15 140 50)"
+                />
+                <Circle cx="140" cy="74" r="3.5" fill="#F1C40F" />
+
+                {/* Front Leg Main */}
+                <AnimatedG style={animLegFront}>
+                  <Rect
+                    x="150"
+                    y="80"
+                    width="8"
+                    height="15"
+                    rx="3"
+                    fill={colors.dogPrimary}
+                  />
+                </AnimatedG>
+
+                {/* Head & Face */}
+                <AnimatedG style={animHead}>
+                  <Ellipse cx="140" cy="50" rx="20" ry="15" fill={colors.dogPrimary} />
+                  {/* Snout */}
+                  <Path d="M120 50 Q110 50 110 55 Q115 62 130 58 Z" fill={colors.dogPrimary} />
+                  <Circle cx="110" cy="53" r="3" fill="#2d221e" />
+
+                  {/* Ear */}
+                  <AnimatedG style={animEar}>
+                    <Path
+                      d="M140 42 C150 42, 152 70, 142 70 C132 70, 135 42, 140 42"
+                      fill={colors.dogSecondary}
+                    />
+                  </AnimatedG>
+
+                  {/* Eye (adjusts if sleeping or awake) */}
+                  {state === 'sleeping' ? (
+                    <Path d="M128 48 Q130 50 132 48" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                  ) : (
+                    <Circle cx="130" cy="48" r="2.5" fill="#000" />
+                  )}
+                </AnimatedG>
+              </G>
+            )}
+
+            {type === 'cat' && (
+              <G id="cat-body-group">
+                {/* Tail */}
+                <AnimatedG style={animTail}>
+                  <Path d="M200 65 Q220 50 215 25" stroke={colors.dogPrimary} strokeWidth="5" strokeLinecap="round" fill="none" />
+                </AnimatedG>
+                {/* Legs Shadow */}
+                <Rect x="180" y="80" width="7" height="15" rx="3" fill={colors.dogSecondary} />
+                <Rect x="145" y="80" width="7" height="15" rx="3" fill={colors.dogSecondary} />
+                {/* Body */}
+                <AnimatedG style={animBody}>
+                  <Rect x="138" y="50" width="64" height="32" rx="14" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Back Leg Main */}
+                <AnimatedG style={animLegBack}>
+                  <Rect x="186" y="80" width="8" height="15" rx="3" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Front Leg Main */}
+                <AnimatedG style={animLegFront}>
+                  <Rect x="151" y="80" width="8" height="15" rx="3" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Head, Ears, Face */}
+                <AnimatedG style={animHead}>
+                  <Circle cx="125" cy="45" r="15" fill={colors.dogPrimary} />
+                  {/* Pointed Ears */}
+                  <Path d="M115 36 L112 22 L122 32 Z" fill={colors.dogSecondary} />
+                  <Path d="M135 36 L138 22 L128 32 Z" fill={colors.dogSecondary} />
+                  {/* Face details */}
+                  {state === 'sleeping' ? (
+                    <Path d="M116 44 Q118 46 120 44 M126 44 Q128 46 130 44" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                  ) : (
+                    <G>
+                      <Circle cx="118" cy="42" r="2" fill="#000" />
+                      <Circle cx="128" cy="42" r="2" fill="#000" />
+                    </G>
+                  )}
+                  <Path d="M121 47 L125 47 M123 47 L123 49" stroke="#000" strokeWidth="1" fill="none" />
+                  {/* Whiskers */}
+                  <Path d="M113 47 L105 45 M113 49 L104 50" stroke="#000" strokeWidth="1" />
+                  <Path d="M133 47 L141 45 M133 49 L142 50" stroke="#000" strokeWidth="1" />
+                </AnimatedG>
+              </G>
+            )}
+
+            {type === 'rabbit' && (
+              <G id="rabbit-body-group">
+                {/* Fluffy Tail */}
+                <AnimatedG style={animTail}>
+                  <Circle cx="202" cy="65" r="8" fill={colors.dogSecondary} />
+                </AnimatedG>
+                {/* Legs Shadow */}
+                <Rect x="175" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
+                <Rect x="145" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
+                {/* Body */}
+                <AnimatedG style={animBody}>
+                  <Rect x="138" y="52" width="60" height="30" rx="15" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Back Leg Main */}
+                <AnimatedG style={animLegBack}>
+                  <Rect x="180" y="80" width="9" height="15" rx="3" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Front Leg Main */}
+                <AnimatedG style={animLegFront}>
+                  <Rect x="150" y="80" width="9" height="15" rx="3" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Head & Long Ears */}
+                <AnimatedG style={animHead}>
+                  <Circle cx="125" cy="45" r="14" fill={colors.dogPrimary} />
+                  {/* Long Ears */}
+                  <AnimatedG style={animEar}>
+                    <Rect x="117" y="15" width="6" height="18" rx="3" fill={colors.dogSecondary} />
+                    <Rect x="127" y="17" width="6" height="18" rx="3" fill={colors.dogSecondary} />
+                  </AnimatedG>
+                  {/* Eyes and pink nose */}
+                  {state === 'sleeping' ? (
+                    <Path d="M116 44 Q119 46 122 44 M125 44 Q128 46 131 44" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                  ) : (
+                    <G>
+                      <Circle cx="119" cy="43" r="1.8" fill="#000" />
+                      <Circle cx="127" cy="43" r="1.8" fill="#000" />
+                    </G>
+                  )}
+                  <Circle cx="123" cy="47" r="1.5" fill="#FF8A65" />
+                </AnimatedG>
+              </G>
+            )}
+
+            {type === 'bird' && (
+              <G id="bird-body-group">
+                {/* Tail feathers */}
+                <AnimatedG style={animTail}>
+                  <Path d="M195 65 L215 55 L210 70 Z" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Thin Legs */}
+                <Line x1="160" y1="80" x2="160" y2="92" stroke={colors.dogSecondary} strokeWidth="3" />
+                <Line x1="175" y1="80" x2="175" y2="92" stroke={colors.dogSecondary} strokeWidth="3" />
+                {/* Body */}
+                <AnimatedG style={animBody}>
+                  <Circle cx="168" cy="62" r="22" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Head */}
+                <AnimatedG style={animHead}>
+                  <Circle cx="138" cy="46" r="14" fill={colors.dogPrimary} />
+                  {/* Beak */}
+                  <Path d="M125 44 L114 48 L125 52 Z" fill="#F1C40F" />
+                  {/* Eye */}
+                  {state === 'sleeping' ? (
+                    <Path d="M131 44 Q134 46 137 44" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                  ) : (
+                    <Circle cx="134" cy="42" r="1.8" fill="#000" />
+                  )}
+                </AnimatedG>
+                {/* Flapping Wing */}
+                <AnimatedG style={animEar}>
+                  <Path d="M158 56 Q144 64 162 76 Q176 68 158 56" fill={colors.dogSecondary} />
+                </AnimatedG>
+              </G>
+            )}
+
+            {type === 'fish' && (
+              <G id="fish-body-group">
+                {/* Back Fin */}
+                <AnimatedG style={animTail}>
+                  <Path d="M195 62 L215 48 L208 62 L215 76 Z" fill={colors.dogSecondary} />
+                </AnimatedG>
+                {/* Main Body */}
+                <AnimatedG style={animBody}>
+                  <Ellipse cx="160" cy="62" rx="26" ry="18" fill={colors.dogPrimary} />
+                </AnimatedG>
+                {/* Flippers */}
+                <AnimatedG style={animLegBack}>
+                  <Path d="M152 74 Q142 86 158 84" fill={colors.dogSecondary} />
+                </AnimatedG>
+                {/* Head & face */}
+                <AnimatedG style={animHead}>
+                  {state === 'sleeping' ? (
+                    <Path d="M137 58 Q140 60 143 58" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                  ) : (
+                    <Circle cx="140" cy="58" r="1.8" fill="#000" />
+                  )}
+                  {/* Mouth */}
+                  <Path d="M134 64 Q128 64 133 67" stroke="#000" strokeWidth="1.5" fill="none" />
+                </AnimatedG>
+              </G>
+            )}
           </AnimatedG>
         </Svg>
       </View>

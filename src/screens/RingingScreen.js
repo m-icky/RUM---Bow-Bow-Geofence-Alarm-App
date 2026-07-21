@@ -26,7 +26,8 @@ export default function RingingScreen({
   customAudioData,
   volume,
   onDismiss,
-  onSnooze
+  onSnooze,
+  companionType = 'dog'
 }) {
   const { colors } = useTheme();
   const soundRef = useRef(null);
@@ -124,9 +125,19 @@ export default function RingingScreen({
         
         {/* Barking mascot avatar */}
         <View style={styles.mascotWrapper}>
-          <MascotRum state="barking" width={240} height={120} />
+          <MascotRum state="barking" type={companionType} width={240} height={120} />
           <View style={styles.speechBubble}>
-            <Text style={styles.speechBubbleText}>WOOF! WAKE UP!</Text>
+            <Text style={styles.speechBubbleText}>
+              {(() => {
+                switch (companionType) {
+                  case 'cat': return 'MEOW! WAKE UP!';
+                  case 'rabbit': return 'THUMP! WAKE UP!';
+                  case 'bird': return 'CHIRP! WAKE UP!';
+                  case 'fish': return 'GLUB! WAKE UP!';
+                  default: return 'WOOF! WAKE UP!';
+                }
+              })()}
+            </Text>
           </View>
         </View>
       </View>
