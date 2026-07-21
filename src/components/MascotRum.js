@@ -13,8 +13,6 @@ import Animated, {
 import { useTheme } from './ThemeContext';
 
 const AnimatedG = Animated.createAnimatedComponent(G);
-const AnimatedPath = Animated.createAnimatedComponent(Path);
-const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
 export default function MascotRum({ state = 'idle', width = 180, height = 120, onBarkComplete }) {
   const { colors } = useTheme();
@@ -212,40 +210,43 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
 
             <G id="dog-body-group">
               {/* Tail */}
-              <AnimatedPath
-                style={animTail}
-                d="M210 60 Q225 55 220 40"
-                stroke={colors.dogPrimary}
-                strokeWidth="6"
-                strokeLinecap="round"
-                fill="none"
-              />
+              <AnimatedG style={animTail}>
+                <Path
+                  d="M210 60 Q225 55 220 40"
+                  stroke={colors.dogPrimary}
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </AnimatedG>
 
               {/* Legs Shadow (behind) */}
               <Rect x="189" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
               <Rect x="156" y="80" width="8" height="15" rx="3" fill={colors.dogSecondary} />
 
               {/* Body */}
-              <AnimatedRect
-                style={animBody}
-                x="140"
-                y="55"
-                width="70"
-                height="25"
-                rx="10"
-                fill={colors.dogPrimary}
-              />
+              <AnimatedG style={animBody}>
+                <Rect
+                  x="140"
+                  y="55"
+                  width="70"
+                  height="25"
+                  rx="10"
+                  fill={colors.dogPrimary}
+                />
+              </AnimatedG>
 
               {/* Back Leg Main */}
-              <AnimatedRect
-                style={animLegBack}
-                x="195"
-                y="80"
-                width="8"
-                height="15"
-                rx="3"
-                fill={colors.dogPrimary}
-              />
+              <AnimatedG style={animLegBack}>
+                <Rect
+                  x="195"
+                  y="80"
+                  width="8"
+                  height="15"
+                  rx="3"
+                  fill={colors.dogPrimary}
+                />
+              </AnimatedG>
 
               {/* Collar & Tag */}
               <Rect
@@ -260,15 +261,16 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
               <Circle cx="140" cy="74" r="3.5" fill="#F1C40F" />
 
               {/* Front Leg Main */}
-              <AnimatedRect
-                style={animLegFront}
-                x="150"
-                y="80"
-                width="8"
-                height="15"
-                rx="3"
-                fill={colors.dogPrimary}
-              />
+              <AnimatedG style={animLegFront}>
+                <Rect
+                  x="150"
+                  y="80"
+                  width="8"
+                  height="15"
+                  rx="3"
+                  fill={colors.dogPrimary}
+                />
+              </AnimatedG>
 
               {/* Head & Face */}
               <AnimatedG style={animHead}>
@@ -278,11 +280,12 @@ export default function MascotRum({ state = 'idle', width = 180, height = 120, o
                 <Circle cx="110" cy="53" r="3" fill="#2d221e" />
 
                 {/* Ear */}
-                <AnimatedPath
-                  style={animEar}
-                  d="M140 42 C150 42, 152 70, 142 70 C132 70, 135 42, 140 42"
-                  fill={colors.dogSecondary}
-                />
+                <AnimatedG style={animEar}>
+                  <Path
+                    d="M140 42 C150 42, 152 70, 142 70 C132 70, 135 42, 140 42"
+                    fill={colors.dogSecondary}
+                  />
+                </AnimatedG>
 
                 {/* Eye (adjusts if sleeping or awake) */}
                 {state === 'sleeping' ? (
