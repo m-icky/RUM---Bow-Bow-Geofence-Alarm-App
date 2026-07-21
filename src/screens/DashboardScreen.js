@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, FlatList, Share, Platform, StatusBar, Alert } from 'react-native';
-import MapView, { Marker, Circle, Polyline, UrlTile } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -58,9 +58,91 @@ export default function DashboardScreen({
   const [localRadius, setLocalRadius] = useState(radius);
   const [localFromCoords, setLocalFromCoords] = useState(currentCoords || { latitude: 8.5241, longitude: 76.9366 });
   const [localDestCoords, setLocalDestCoords] = useState(destCoords);
+  const [routeDestCoords, setRouteDestCoords] = useState(null);
   const [localDestName, setLocalDestName] = useState(destName);
-  const [mapRef, setMapRef] = useState(null);
   const [editingAlarmId, setEditingAlarmId] = useState(null);
+
+  const webViewRef = React.useRef(null);
+  const [isMapReady, setIsMapReady] = useState(false);
+
+  // Custom mock mapRef to replicate react-native-maps interface
+  const mapRef = {
+    animateToRegion: (region) => {
+      if (webViewRef.current) {
+        const msg = JSON.stringify({
+          type: 'ANIMATE_TO_REGION',
+          payload: region
+        });
+        webViewRef.current.injectJavaScript(`
+          if (window.updateMapFromReactNative) {
+            window.updateMapFromReactNative(${JSON.stringify(msg)});
+          }
+          true;
+        `);
+      }
+    },
+    fitToCoordinates: (coordinates) => {
+      if (webViewRef.current) {
+        const msg = JSON.stringify({
+          type: 'FIT_TO_COORDINATES',
+          payload: coordinates
+        });
+        webViewRef.current.injectJavaScript(`
+          if (window.updateMapFromReactNative) {
+            window.updateMapFromReactNative(${JSON.stringify(msg)});
+          }
+          true;
+        `);
+      }
+    }
+  };
+
+  // Sync state changes with the Leaflet WebView map once it's loaded
+  useEffect(() => {
+    if (isMapReady && webViewRef.current) {
+      const isRouteStale = !routeDestCoords || 
+        localDestCoords.latitude !== routeDestCoords.latitude || 
+        localDestCoords.longitude !== routeDestCoords.longitude;
+
+      const payload = {
+        localFromCoords,
+        localDestCoords,
+        localRadius,
+        routePath,
+        isRouteStale,
+        alarms,
+        editingAlarmId,
+        colors
+      };
+      const msg = JSON.stringify({
+        type: 'UPDATE_MAP',
+        payload
+      });
+      webViewRef.current.injectJavaScript(`
+        if (window.updateMapFromReactNative) {
+          window.updateMapFromReactNative(${JSON.stringify(msg)});
+        }
+        true;
+      `);
+    }
+  }, [isMapReady, localFromCoords, localDestCoords, routeDestCoords, localRadius, routePath, alarms, editingAlarmId, colors]);
+
+  const handleMapMessage = (event) => {
+    try {
+      const message = JSON.parse(event.nativeEvent.data);
+      if (message.type === 'MAP_READY') {
+        setIsMapReady(true);
+      } else if (message.type === 'MARKER_DRAG_END') {
+        onMarkerDragEnd({
+          nativeEvent: {
+            coordinate: message.coordinate
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("Error parsing WebView Leaflet message:", e);
+    }
+  };
 
   // Local toast state
   const [toastMsg, setToastMsg] = useState(null);
@@ -410,11 +492,14 @@ export default function DashboardScreen({
   useEffect(() => {
     if (!localFromCoords || !localDestCoords) return;
 
+    let active = true;
+
     // Check if points are identical (prevents fetching loops/zigzags on same location)
     const latDiff = Math.abs(localFromCoords.latitude - localDestCoords.latitude);
     const lngDiff = Math.abs(localFromCoords.longitude - localDestCoords.longitude);
     if (latDiff < 0.0001 && lngDiff < 0.0001) {
       setRoutePath([{ latitude: localFromCoords.latitude, longitude: localFromCoords.longitude }]);
+      setRouteDestCoords(localDestCoords);
       setRouteDistance(0);
       setRouteDuration(0);
       return;
@@ -422,9 +507,12 @@ export default function DashboardScreen({
 
     const fetchRoute = async () => {
       try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${localFromCoords.longitude},${localFromCoords.latitude};${localDestCoords.longitude},${localDestCoords.latitude}?overview=full&geometries=geojson`;
+        const url = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${localFromCoords.longitude},${localFromCoords.latitude};${localDestCoords.longitude},${localDestCoords.latitude}?overview=full&geometries=geojson`;
         const res = await fetch(url);
         const data = await res.json();
+        
+        if (!active) return; // Ignore stale request
+        
         if (data.routes && data.routes.length > 0) {
           const route = data.routes[0];
           const coords = route.geometry.coordinates.map(pt => ({
@@ -432,28 +520,35 @@ export default function DashboardScreen({
             longitude: pt[0]
           }));
           setRoutePath(coords);
+          setRouteDestCoords(localDestCoords);
           setRouteDistance(route.distance);
           setRouteDuration(route.duration);
         } else {
           // Fallback to straight line
           setRoutePath([localFromCoords, localDestCoords]);
+          setRouteDestCoords(localDestCoords);
           setRouteDistance(getDistance(localFromCoords, localDestCoords));
           setRouteDuration((getDistance(localFromCoords, localDestCoords) / 1000 / 60) * 3600);
         }
       } catch (e) {
-        console.warn("OSRM routing request failed, falling back to line:", e);
+        if (!active) return;
         setRoutePath([localFromCoords, localDestCoords]);
+        setRouteDestCoords(localDestCoords);
         setRouteDistance(getDistance(localFromCoords, localDestCoords));
         setRouteDuration((getDistance(localFromCoords, localDestCoords) / 1000 / 60) * 3600);
       }
     };
 
     fetchRoute();
+
+    return () => {
+      active = false;
+    };
   }, [localFromCoords, localDestCoords]);
 
   // Auto-fit map boundaries
   useEffect(() => {
-    if (mapRef && localFromCoords && localDestCoords) {
+    if (isMapReady && mapRef && localFromCoords && localDestCoords) {
       const timer = setTimeout(() => {
         mapRef.fitToCoordinates([localFromCoords, localDestCoords], {
           edgePadding: { top: 90, right: 80, bottom: 90, left: 80 },
@@ -462,7 +557,7 @@ export default function DashboardScreen({
       }, 600);
       return () => clearTimeout(timer);
     }
-  }, [localFromCoords, localDestCoords, mapRef]);
+  }, [localFromCoords, localDestCoords, mapRef, isMapReady]);
 
   const onMarkerDragEnd = async (e) => {
     const coords = e.nativeEvent.coordinate;
@@ -726,78 +821,17 @@ export default function DashboardScreen({
 
       {/* Map Module */}
       <View style={[styles.mapContainer, { flex: isDeckMinimized ? 1.8 : 1.1 }]}>
-        <MapView
-          ref={(ref) => setMapRef(ref)}
+        <WebView
+          ref={webViewRef}
           style={styles.map}
-          mapType={Platform.OS === 'android' ? 'none' : 'standard'}
-          initialRegion={{
-            latitude: localDestCoords.latitude,
-            longitude: localDestCoords.longitude,
-            latitudeDelta: 0.08,
-            longitudeDelta: 0.08,
-          }}
-          customMapStyle={mapDarkStyle}
-          showsUserLocation={true}
-          toolbarEnabled={false}
-          showsMyLocationButton={false}
-        >
-          {Platform.OS === 'android' && (
-            <UrlTile
-              urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-              maximumZ={19}
-              flipY={false}
-            />
-          )}
-          {/* Winding road route line polyline */}
-          <Polyline
-            coordinates={routePath}
-            strokeWidth={4}
-            strokeColor="#3897f0"
-          />
-
-          {/* Custom start marker point */}
-          <Marker coordinate={localFromCoords} title="Start Point">
-            <View style={styles.startMarkerOuter}>
-              <View style={styles.startMarkerInner} />
-            </View>
-          </Marker>
-
-          {/* Draggable Stop Pin */}
-          <Marker
-            coordinate={localDestCoords}
-            draggable
-            onDragEnd={onMarkerDragEnd}
-            title={localDestName}
-            pinColor={colors.accent}
-          />
-
-          {/* Circular Perimeter Geofence */}
-          <Circle
-            center={localDestCoords}
-            radius={localRadius}
-            strokeColor={colors.accent}
-            fillColor={colors.accentRgba}
-            strokeWidth={2}
-          />
-
-          {/* Render all other armed alarms on the map */}
-          {alarms && alarms.filter(a => a.id !== editingAlarmId).map(alarm => (
-            <React.Fragment key={alarm.id}>
-              <Marker 
-                coordinate={alarm.coords} 
-                title={alarm.name} 
-                pinColor="#9b59b6" // violet pin for armed alarms
-              />
-              <Circle 
-                center={alarm.coords} 
-                radius={alarm.radius} 
-                strokeColor="rgba(155, 89, 182, 0.4)" 
-                fillColor="rgba(155, 89, 182, 0.08)" 
-                strokeWidth={1.5}
-              />
-            </React.Fragment>
-          ))}
-        </MapView>
+          originWhitelist={['*']}
+          source={{ html: LEAFLET_HTML }}
+          onMessage={handleMapMessage}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+        />
         
         {/* Floating Actions Overlay (Share, Favorite) */}
         <View style={styles.mapFloatStack}>
@@ -1134,12 +1168,16 @@ const styles = StyleSheet.create({
     bottom: 16,
     right: 16,
     gap: 10,
+    zIndex: 10,
+    elevation: 10,
   },
   mapTopRightStack: {
     position: 'absolute',
     top: 16,
     right: 16,
     gap: 10,
+    zIndex: 10,
+    elevation: 10,
   },
   mapFloatBtn: {
     width: 44,
@@ -1364,3 +1402,204 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 });
+
+const LEAFLET_HTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #f8f9fa;
+    }
+    .custom-div-icon {
+      background: none;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    var map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([8.5241, 76.9366], 12);
+
+    // Standard OpenStreetMap Tile Layer (Light Colored Street Maps!)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var startMarker = null;
+    var destMarker = null;
+    var destCircle = null;
+    var routePolyline = null;
+    var otherAlarmMarkers = [];
+    var otherAlarmCircles = [];
+    var currentData = null;
+
+    function sendToReactNative(data) {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(data));
+      }
+    }
+
+    window.updateMapFromReactNative = function(messageString) {
+      try {
+        const message = JSON.parse(messageString);
+        if (message.type === 'UPDATE_MAP') {
+          updateMap(message.payload);
+        } else if (message.type === 'ANIMATE_TO_REGION') {
+          const region = message.payload;
+          map.setView([region.latitude, region.longitude], 14, { animate: true });
+        } else if (message.type === 'FIT_TO_COORDINATES') {
+          const coords = message.payload;
+          if (coords.length > 0) {
+            const bounds = L.latLngBounds(coords.map(c => [c.latitude, c.longitude]));
+            map.fitBounds(bounds, { padding: [50, 50] });
+          }
+        }
+      } catch (err) {
+        console.error("Leaflet update error:", err);
+      }
+    };
+
+    var isFirstLoad = true;
+
+    function updateMap(data) {
+      currentData = data;
+      const colors = data.colors || {};
+      const accentColor = colors.accent || '#3498db';
+
+      // 0. Clean up existing layers from the map before redrawing
+      if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+      if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+      if (destCircle) { map.removeLayer(destCircle); destCircle = null; }
+      if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+      otherAlarmMarkers.forEach(m => map.removeLayer(m));
+      otherAlarmCircles.forEach(c => map.removeLayer(c));
+      otherAlarmMarkers = [];
+      otherAlarmCircles = [];
+
+      // If it is the first load and we have destination coordinates, center the map there!
+      if (isFirstLoad && data.localDestCoords) {
+        map.setView([data.localDestCoords.latitude, data.localDestCoords.longitude], 12);
+        isFirstLoad = false;
+      }
+
+      // 1. Start Marker (Green Pin)
+      if (data.localFromCoords) {
+        const fromLat = data.localFromCoords.latitude;
+        const fromLng = data.localFromCoords.longitude;
+        var greenIcon = L.divIcon({
+          className: 'custom-div-icon',
+          html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#2ecc71"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
+          iconSize: [30, 42],
+          iconAnchor: [15, 42]
+        });
+        startMarker = L.marker([fromLat, fromLng], { icon: greenIcon }).addTo(map);
+      }
+
+      // 2. Stop Marker (Blue Draggable Pin) & Geofence Circle
+      if (data.localDestCoords) {
+        const destLat = data.localDestCoords.latitude;
+        const destLng = data.localDestCoords.longitude;
+        
+        var destIcon = L.divIcon({
+          className: 'custom-div-icon',
+          html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#3498db"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
+          iconSize: [30, 42],
+          iconAnchor: [15, 42]
+        });
+
+        destMarker = L.marker([destLat, destLng], { 
+          icon: destIcon,
+          draggable: true 
+        }).addTo(map);
+
+        destMarker.on('drag', function(e) {
+          const latlng = destMarker.getLatLng();
+          if (destCircle) {
+            destCircle.setLatLng(latlng);
+          }
+        });
+
+        destMarker.on('dragend', function(e) {
+          const latlng = destMarker.getLatLng();
+          sendToReactNative({
+            type: 'MARKER_DRAG_END',
+            coordinate: {
+              latitude: latlng.lat,
+              longitude: latlng.lng
+            }
+          });
+        });
+
+        // Draw Circle Geofence
+        if (data.localRadius !== undefined) {
+          destCircle = L.circle([destLat, destLng], {
+            radius: data.localRadius,
+            color: accentColor,
+            fillColor: accentColor,
+            fillOpacity: 0.15,
+            weight: 2
+          }).addTo(map);
+        }
+      }
+
+      // 3. Route Polyline
+      if (!data.isRouteStale && data.routePath && data.routePath.length > 0) {
+        const latlngs = data.routePath.map(pt => [pt.latitude, pt.longitude]);
+        routePolyline = L.polyline(latlngs, {
+          color: '#3897f0',
+          weight: 4
+        }).addTo(map);
+      }
+
+      // 4. Other Armed Alarms (Purple Pins)
+      if (data.alarms && data.alarms.length > 0) {
+        data.alarms.filter(a => a.id !== data.editingAlarmId).forEach(alarm => {
+          if (alarm.coords) {
+            var armedIcon = L.divIcon({
+              className: 'custom-div-icon',
+              html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#9b59b6"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
+              iconSize: [30, 42],
+              iconAnchor: [15, 42]
+            });
+            var m = L.marker([alarm.coords.latitude, alarm.coords.longitude], { icon: armedIcon }).addTo(map);
+            otherAlarmMarkers.push(m);
+
+            var c = L.circle([alarm.coords.latitude, alarm.coords.longitude], {
+              radius: alarm.radius,
+              color: 'rgba(155, 89, 182, 0.6)',
+              fillColor: 'rgba(155, 89, 182, 0.1)',
+              fillOpacity: 0.1,
+              weight: 1.5
+            }).addTo(map);
+            otherAlarmCircles.push(c);
+          }
+        });
+      }
+    }
+
+    // Handshake waiting for ReactNativeWebView to be injected
+    function initHandshake() {
+      if (window.ReactNativeWebView) {
+        sendToReactNative({ type: 'MAP_READY' });
+      } else {
+        setTimeout(initHandshake, 50);
+      }
+    }
+    initHandshake();
+  </script>
+</body>
+</html>
+`;

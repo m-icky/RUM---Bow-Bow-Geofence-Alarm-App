@@ -26,11 +26,6 @@
       }
     },
     "android": {
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDUMMY_KEY_TO_PREVENT_STARTUP_CRASH"
-        }
-      },
       "adaptiveIcon": {
         "foregroundImage": "./rum.png",
         "backgroundColor": "#1c1412"
