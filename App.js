@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, SafeAreaView, StatusBar, Text } from 'react-native';
+import { StyleSheet, View, SafeAreaView, StatusBar, Text, ScrollView, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { ThemeProvider, useTheme } from './src/components/ThemeContext';
@@ -14,9 +14,93 @@ import SettingsScreen from './src/screens/SettingsScreen';
 // Splash Screen
 import MascotRum from './src/components/MascotRum';
 
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  state = { hasError: false, error: null, errorInfo: null };
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+    this.setState({ errorInfo });
+    try {
+      AsyncStorage.setItem('rum_last_crash', JSON.stringify({
+        message: error.message || String(error),
+        stack: error.stack || '',
+        info: errorInfo ? errorInfo.componentStack : ''
+      }));
+    } catch (e) {}
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#1c1412', padding: 20, justifyContent: 'center' }}>
+          <Text style={{ color: '#ff4d4d', fontSize: 24, fontWeight: 'bold', marginBottom: 10 }}>⚠️ App Crash Detected</Text>
+          <Text style={{ color: '#fff', fontSize: 16, marginBottom: 20 }}>
+            The app encountered a Javascript error. Please share this screen with the developer to fix the issue:
+          </Text>
+          <ScrollView style={{ backgroundColor: '#2d221e', padding: 10, borderRadius: 5, maxHeight: 300 }}>
+            <Text style={{ color: '#ffcc00', fontFamily: 'monospace', fontSize: 14 }}>
+              Error: {this.state.error ? this.state.error.message : 'Unknown error'}
+            </Text>
+            <Text style={{ color: '#baa49d', fontFamily: 'monospace', fontSize: 12, marginTop: 10 }}>
+              {this.state.error ? this.state.error.stack : ''}
+            </Text>
+            <Text style={{ color: '#baa49d', fontFamily: 'monospace', fontSize: 12, marginTop: 10 }}>
+              {this.state.errorInfo ? this.state.errorInfo.componentStack : ''}
+            </Text>
+          </ScrollView>
+          <TouchableOpacity 
+            style={{ marginTop: 20, backgroundColor: '#e09f67', padding: 15, borderRadius: 5, alignItems: 'center' }}
+            onPress={() => this.setState({ hasError: false, error: null, errorInfo: null })}
+          >
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>Try Again</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Register global error handler
+if (global.ErrorUtils) {
+  const previousHandler = global.ErrorUtils.getGlobalHandler();
+  global.ErrorUtils.setGlobalHandler((error, isFatal) => {
+    try {
+      AsyncStorage.setItem('rum_last_crash', JSON.stringify({
+        message: error.message || String(error),
+        stack: error.stack || '',
+        info: 'Global Error Handler'
+      }));
+    } catch (e) {}
+    
+    if (previousHandler) {
+      previousHandler(error, isFatal);
+    }
+  });
+}
+
 function MainAppShell() {
   const { colors } = useTheme();
   
+  const [lastCrash, setLastCrash] = useState(null);
+
+  useEffect(() => {
+    const checkCrashLog = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('rum_last_crash');
+        if (raw) {
+          setLastCrash(JSON.parse(raw));
+        }
+      } catch (e) {}
+    };
+    checkCrashLog();
+  }, []);
+
   // Navigation stack: splash, dashboard, tracking, ringing, sounds, settings
   const [currentScreen, setCurrentScreen] = useState('splash');
   
@@ -324,6 +408,39 @@ function MainAppShell() {
     }
   };
 
+  if (lastCrash) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#1c1412', padding: 20, justifyContent: 'center' }}>
+        <Text style={{ color: '#ff4d4d', fontSize: 24, fontWeight: 'bold', marginBottom: 10 }}>⚠️ Diagnostic Report</Text>
+        <Text style={{ color: '#fff', fontSize: 16, marginBottom: 20 }}>
+          The app crashed on the last launch. Here are the error details:
+        </Text>
+        <ScrollView style={{ backgroundColor: '#2d221e', padding: 10, borderRadius: 5, maxHeight: 400 }}>
+          <Text style={{ color: '#ffcc00', fontFamily: 'monospace', fontSize: 14, fontWeight: 'bold' }}>
+            Error: {lastCrash.message}
+          </Text>
+          <Text style={{ color: '#baa49d', fontFamily: 'monospace', fontSize: 12, marginTop: 10 }}>
+            {lastCrash.stack}
+          </Text>
+          <Text style={{ color: '#baa49d', fontFamily: 'monospace', fontSize: 12, marginTop: 10 }}>
+            {lastCrash.info}
+          </Text>
+        </ScrollView>
+        <TouchableOpacity 
+          style={{ marginTop: 20, backgroundColor: '#e09f67', padding: 15, borderRadius: 5, alignItems: 'center' }}
+          onPress={async () => {
+            try {
+              await AsyncStorage.removeItem('rum_last_crash');
+            } catch (e) {}
+            setLastCrash(null);
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Clear Log & Continue</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
@@ -334,9 +451,11 @@ function MainAppShell() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <MainAppShell />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <MainAppShell />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 
