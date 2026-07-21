@@ -1,6 +1,6 @@
 {
   "expo": {
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "name": "Rum",
     "slug": "rum-alarm-app",
     "version": "1.0.0",
@@ -26,6 +26,11 @@
       }
     },
     "android": {
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDUMMY_KEY_TO_PREVENT_STARTUP_CRASH"
+        }
+      },
       "adaptiveIcon": {
         "foregroundImage": "./rum.png",
         "backgroundColor": "#1c1412"
