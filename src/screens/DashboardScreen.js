@@ -1515,7 +1515,7 @@ const LEAFLET_HTML = `
         
         var destIcon = L.divIcon({
           className: 'custom-div-icon',
-          html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#3498db"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
+          html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#e74c3c"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
           iconSize: [30, 42],
           iconAnchor: [15, 42]
         });
