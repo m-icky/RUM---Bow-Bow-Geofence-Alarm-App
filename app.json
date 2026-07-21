@@ -36,7 +36,9 @@
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "plugins": [
@@ -46,6 +48,11 @@
           "locationAlwaysPermission": "Allow Rum to track location in the background for commuter alarms."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0d780b74-e572-4e68-a11e-3e978aed689a"
+      }
+    }
   }
 }
