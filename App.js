@@ -171,6 +171,37 @@ function MainAppShell() {
     }
   };
 
+  // Send a local approaching notification 2km before perimeter with companion-specific text
+  const sendApproachingNotification = async (alarmName, cType, cName) => {
+    const soundMap = {
+      dog: 'Bow-Bow', cat: 'Meow-Meow', rabbit: 'Thump-Thump', bird: 'Tweet-Tweet', fish: 'Glub-Glub'
+    };
+    const sound = soundMap[cType] || 'Bow-Bow';
+    const name = cName || 'Rum';
+
+    const approachingMessages = {
+      dog: `🐶 ${name} is barking: "${sound}! ${sound}!" You are 2km away from the perimeter of ${alarmName}! Wake up! Wake up!`,
+      cat: `🐱 ${name} is meowing: "${sound}! ${sound}!" You are 2km away from the perimeter of ${alarmName}! Wake up! Wake up!`,
+      rabbit: `🐰 ${name} is thumping: "${sound}! ${sound}!" You are 2km away from the perimeter of ${alarmName}! Wake up! Wake up!`,
+      bird: `🐦 ${name} is chirping: "${sound}! ${sound}!" You are 2km away from the perimeter of ${alarmName}! Wake up! Wake up!`,
+      fish: `🐠 ${name} is splashing: "${sound}! ${sound}!" You are 2km away from the perimeter of ${alarmName}! Wake up! Wake up!`,
+    };
+
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `🚨 ${name} says: Reaching perimeter soon!`,
+          body: approachingMessages[cType] || approachingMessages.dog,
+          sound: 'default',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+        },
+        trigger: null, // fire immediately
+      });
+    } catch (e) {
+      console.error('Failed to send approaching notification:', e);
+    }
+  };
+
   // Navigation stack: splash, dashboard, tracking, ringing, sounds, settings
   const [currentScreen, setCurrentScreen] = useState('splash');
   
@@ -188,6 +219,7 @@ function MainAppShell() {
   const [alarms, setAlarms] = useState([]);
   const [triggeredAlarm, setTriggeredAlarm] = useState(null);
   const triggeredAlarmRef = useRef(null);
+  const notifiedApproachingRef = useRef({});
 
   useEffect(() => {
     triggeredAlarmRef.current = triggeredAlarm;
@@ -293,11 +325,19 @@ function MainAppShell() {
             setCurrentCoords(coords);
 
             // Verify if user is inside the geofence perimeter of ANY active alarm
-            if (!triggeredAlarmRef.current && alarms && alarms.length > 0) {
+            if (alarms && alarms.length > 0) {
               for (const alarm of alarms) {
                 if (alarm.isActive) {
                   const dist = getDistance(coords, alarm.coords);
-                  if (dist <= alarm.radius) {
+                  
+                  // Check 2km before perimeter warning
+                  if (dist <= alarm.radius + 2000 && !notifiedApproachingRef.current[alarm.id]) {
+                    notifiedApproachingRef.current[alarm.id] = true;
+                    sendApproachingNotification(alarm.name, companionType, companionName);
+                  }
+
+                  // Check actual perimeter reached
+                  if (dist <= alarm.radius && !triggeredAlarmRef.current) {
                     triggeredAlarmRef.current = alarm;
                     setTriggeredAlarm(alarm);
                     sendAlarmNotification(alarm.name, companionType, companionName);
@@ -341,6 +381,9 @@ function MainAppShell() {
     const updated = alarms.filter(a => a.id !== id);
     setAlarms(updated);
     AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    if (notifiedApproachingRef.current) {
+      delete notifiedApproachingRef.current[id];
+    }
   };
 
   const updateAlarm = (id, name, coords, r) => {
@@ -370,6 +413,20 @@ function MainAppShell() {
     }
   };
 
+  const triggerApproachingAlarm = () => {
+    const activeAlarm = alarms.find(a => a.isActive) || {
+      id: 'mock',
+      name: destName,
+      coords: destCoords,
+      radius: radius,
+      isActive: true
+    };
+    if (!notifiedApproachingRef.current[activeAlarm.id]) {
+      notifiedApproachingRef.current[activeAlarm.id] = true;
+      sendApproachingNotification(activeAlarm.name, companionType, companionName);
+    }
+  };
+
   const dismissAlarm = () => {
     if (triggeredAlarm) {
       // Toggle triggered alarm to inactive so it does not loop trigger
@@ -381,6 +438,11 @@ function MainAppShell() {
       });
       setAlarms(updated);
       AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    }
+    if (triggeredAlarm) {
+      if (notifiedApproachingRef.current) {
+        delete notifiedApproachingRef.current[triggeredAlarm.id];
+      }
     }
     setTriggeredAlarm(null);
     navigateTo('dashboard');
@@ -396,6 +458,11 @@ function MainAppShell() {
       });
       setAlarms(updated);
       AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    }
+    if (triggeredAlarm) {
+      if (notifiedApproachingRef.current) {
+        delete notifiedApproachingRef.current[triggeredAlarm.id];
+      }
     }
     setTriggeredAlarm(null);
     navigateTo('dashboard');
@@ -455,6 +522,7 @@ function MainAppShell() {
             volume={volume}
             onDisarm={disarmAlarm}
             onTriggerAlarm={triggerAlarm}
+            onApproachingAlarm={triggerApproachingAlarm}
             companionType={companionType}
           />
         );

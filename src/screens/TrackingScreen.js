@@ -15,6 +15,7 @@ export default function TrackingScreen({
   volume,
   onDisarm,
   onTriggerAlarm,
+  onApproachingAlarm,
   companionType = 'dog'
 }) {
   const { colors } = useTheme();
@@ -24,6 +25,7 @@ export default function TrackingScreen({
   const [distanceToBoundary, setDistanceToBoundary] = useState(0);
   const [simSpeed, setSimSpeed] = useState(1); // multiplier
   const simInterval = useRef(null);
+  const hasNotifiedApproaching = useRef(false);
 
   // Constants for distance calculations (Trivandrum to Ernakulam is ~200km)
   const startCoords = useRef({ latitude: 8.5241, longitude: 76.9366 });
@@ -75,6 +77,14 @@ export default function TrackingScreen({
       const boundaryDist = Math.max(0, nextDist - radius);
       setDistanceToBoundary(boundaryDist);
 
+      // Trigger approaching warning (2km before perimeter)
+      if (nextDist <= radius + 2000 && !hasNotifiedApproaching.current) {
+        hasNotifiedApproaching.current = true;
+        if (onApproachingAlarm) {
+          onApproachingAlarm();
+        }
+      }
+
       // Trigger boundary cross
       if (nextDist <= radius) {
         clearInterval(simInterval.current);
@@ -96,6 +106,14 @@ export default function TrackingScreen({
     };
     setCurrentCoords(insideCoords);
     setDistanceToBoundary(0);
+    
+    // Trigger approaching warning if not already triggered
+    if (!hasNotifiedApproaching.current) {
+      hasNotifiedApproaching.current = true;
+      if (onApproachingAlarm) {
+        onApproachingAlarm();
+      }
+    }
     onTriggerAlarm();
   };
 

@@ -1359,7 +1359,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   mascotTipText: {
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: '500',
     lineHeight: 16,
   },
