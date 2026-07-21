@@ -1,6 +1,6 @@
 {
   "expo": {
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "name": "Rum",
     "slug": "rum-alarm-app",
     "version": "1.0.0",
