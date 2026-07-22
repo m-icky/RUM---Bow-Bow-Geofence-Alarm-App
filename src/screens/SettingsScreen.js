@@ -455,7 +455,7 @@ export default function SettingsScreen({
                 <Ionicons name="logo-github" size={24} color={colors.text} />
               </View>
               <View style={{ marginLeft: 12 }}>
-                <Text style={[styles.githubTitle, { color: colors.text }]}>Desig & Developed by m-icky</Text>
+                <Text style={[styles.githubTitle, { color: colors.text }]}>Designed & Developed by m-icky</Text>
                 <Text style={[styles.githubSubtitle, { color: colors.textSecondary }]}>github.com/m-icky</Text>
               </View>
             </View>
