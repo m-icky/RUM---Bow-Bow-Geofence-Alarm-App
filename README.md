@@ -1,72 +1,168 @@
 # 🐾 RUM - Bow-Bow Geofence Alarm App
 
-RUM is a premium, real-time multi-geofence location alert app built using React Native and Expo. It plays offline alarms (like dog barks, radars, or chimes) when the user travels inside designated perimeter boundaries.
+**RUM** is a premium, real-time location-based geofence alarm and transit companion application built with **React Native** and **Expo (SDK 54)**. Designed for commuters, travelers, and adventurers, RUM ensures you never miss a stop on buses, trains, or road trips by playing customizable offline alarms as you approach your destination perimeter.
+
+With customizable pet companions (dogs, cats, rabbits, birds, fish), background location tracking, multi-geofence management, a custom theme design system, and offline synthesized audio, RUM delivers a smooth and delightful travel experience.
 
 ---
 
-## 🌟 Key Features
+## ✨ Key Features
 
-### 📍 Multi-Geofence Alarm CRUD Management
-* **Simultaneous Tracking**: Supports adding and monitoring **multiple armed geofence zones** at once.
-* **Persistent Storage**: Saved alarms are stored locally and restored on app launch using `AsyncStorage`.
-* **Map Overlays**: Active alarms are displayed with distinct translucent boundary zones on the map.
-* **CRUD Deck Control**: Modify (edit names/radii), delete, or toggle alarms directly from the bottom collapsible sliding card.
-* **Tap-to-Zoom Focus**: Clicking any item in the armed list centers and focuses the map viewport onto that specific coordinate location.
+### 📍 Multi-Geofence Management & CRUD
+* **Simultaneous Active Zones**: Monitor multiple armed geofence zones simultaneously.
+* **Interactive Radius Adjustment**: Adjust perimeter boundaries dynamically from 100 meters up to 5 kilometers using intuitive range sliders.
+* **Persistent Storage**: Saved alarm zones, radii, and user preferences are safely stored locally using `@react-native-async-storage/async-storage`.
+* **Map & List Integration**: Active geofences display translucent perimeter rings on the map. Easily toggle pause/active states, edit boundaries, or delete alarms from the Home dashboard.
+* **Tap-to-Focus Map Jump**: Select any alarm from your saved list to immediately center and focus the map on its exact coordinates.
 
-### 🔍 Auto-Suggestion Search (Nominatim API)
-* **India-Strict Geocoding**: Search queries are restricted strictly to India (`countrycodes=in`) using the OpenStreetMap Nominatim engine.
-* **South Indian Prioritization**: Automatically prioritizes and bubbles up Kerala, Tamil Nadu, and Karnataka states' addresses to the top of the search suggestions.
-* **Fuzzy Spelling Corrections**: Dynamic phonetic search allows queries to resolve correctly even with minor spelling typos (e.g. searching "trvndrm" yields Trivandrum).
-* **Clear Inputs**: Tap the `x` clear icon inside the focused search boxes to wipe text and automatically restore standard place presets.
+### 🔍 Auto-Suggestion Search & India Geocoding (Nominatim API)
+* **Smart Geocoding Engine**: Real-time address lookups powered by OpenStreetMap's Nominatim engine.
+* **India-Strict Filtering**: Restricts query results (`countrycodes=in`) with top priority given to South Indian states (Kerala, Tamil Nadu, Karnataka).
+* **Fuzzy Spelling Correction**: Phonetic matching resolves minor spelling errors or typos automatically (e.g., searching `"trvndrm"` finds Trivandrum).
+* **Preset Destination Shortcuts**: Quick-select popular travel hubs, train stations, and airports with a single tap.
 
-### 🏃 Real-Time Background Tracker & Map Controls
-* **Live GPS Tracking**: Uses high-accuracy hardware listeners (`Location.watchPositionAsync` in `App.js`) to continuously evaluate user movement.
-* **Top-Right Map Focus Toggles**: Three floating buttons to center/zoom the map on:
-  * 📍 Destination coordinates (orange icon)
-  * 🟢 Starting coordinates (green circle)
-  * 🌐 Device Live GPS location (blue target icon)
-* **Safety Layout Padding**: Dynamic status bar offset prevents notched phone screens (iOS or Android) from overlapping search inputs.
+### 🐶 Customizable Pet Companion ("Rum" & Friends)
+* **5 Unique Companions**: Choose your traveling buddy — **Dog (Rum the Dachshund)**, **Cat**, **Rabbit**, **Bird**, or **Fish**.
+* **Custom Buddy Name**: Rename your companion to anything you like.
+* **Dynamic Animations & States**: Companions change states based on travel progress: *Idle/Resting*, *Running/Watching*, *Barking/Alerting*, or *Draggable/Interactive* on the Settings page.
+* **Sound & Phrase Personality**: Each pet companion features custom sound signatures ("Bow-Bow", "Meow-Meow", "Thump-Thump", "Tweet-Tweet", "Glub-Glub") and interactive chatter.
+* **Treat Feeding (UPI Integration)**: Support the developer and treat your companion via Google Pay / UPI.
 
-### 🔊 Offline Synthesized Sounds
-* Resolves CDN 403 request blockages by bundling synthesized audio files (`bark.wav`, `radar.wav`, `chimes.wav`, `breeze.wav`) offline directly inside `assets/sounds/`, played natively with Expo AV.
+### 🏃 Background Location Tracker & 2-Stage Notifications
+* **Foreground & Background GPS Services**: Built using `expo-location` and `expo-task-manager` to track movement even when the screen is locked or the app is minimized.
+* **Persistent Foreground Notification**: Displays an active status notification bar while monitoring armed zones.
+* **Stage 1 — Approaching Warning (2km)**: Triggers an early warning notification when you enter within 2km of your boundary so you can gather your belongings.
+* **Stage 2 — Perimeter Alert**: Triggers a high-priority alarm notification and full-screen ringing UI with continuous audio and vibration patterns when entering the destination perimeter.
+
+### 🔊 Offline Audio & Custom Sound Support
+* **Bundled Offline Sounds**: Uses synthesized audio files (`bark.wav`, `radar.wav`, `chimes.wav`, `breeze.wav`) bundled directly in `assets/sounds/` with `expo-audio`.
+* **Custom Audio Upload**: Pick and load custom MP3, WAV, or AAC audio files from your device using `expo-document-picker`.
+* **Volume Slider & Audio Tester**: In-app volume control and instant tone preview testing.
+
+### 🎨 Themes & Custom Hex Palette Builder
+* **Preset Themes**:
+  * 🤎 **Classic Cocoa** (Default warm Dachshund brown)
+  * ☀️ **Daylight** (Clean light theme)
+  * 🌌 **Midnight Cyber** (High-contrast dark neon)
+  * 🌲 **Emerald Forest** (Organic forest green)
+  * 🌆 **Sunset Violet** (Deep purple and tangerine)
+* **Custom Hex Palette Builder**: Select custom Primary and Accent colors using hex inputs or an interactive 70-color swatch modal palette.
 
 ---
 
-## 🛠️ Development & Local Execution
+## 📱 App Screens Overview
+
+| Screen | Description |
+| :--- | :--- |
+| **🏠 Home** | Dashboard displaying active alarms, companion status widget, stats overview, multi-geofence list, and edit modals. |
+| **🗺️ Map (Dashboard)** | Full-screen interactive map, location search bar with auto-suggestions, pin placement, perimeter slider, and quick focus toggles. |
+| **🚀 Tracking** | Real-time commute monitor displaying remaining distance, live speed, ETA, disarm controls, and a mini companion progress animation bar. |
+| **🔔 Ringing** | Triggered alert screen featuring animated mascot barks, expanding waveforms, Snooze (5 min), and Disarm controls. |
+| **🔊 Sounds** | Audio tone selection, custom sound file uploader, volume controls, and sound preview button. |
+| **⚙️ Settings** | Theme carousel, custom hex color picker, companion selector & naming, treat feeding, mascot tip toggles, interactive mascot playground, and developer profile links. |
+
+---
+
+## 🛠️ Technology Stack
+
+* **Framework**: [React Native](https://reactnative.dev/) (v0.81.5) with [React 19](https://react.dev/)
+* **Platform & Tooling**: [Expo SDK 54](https://expo.dev/)
+* **Navigation & UI**: Custom Animated Tab Bar (`react-native-reanimated`, `expo-haptics`)
+* **Maps & Geocoding**: `react-native-maps`, OpenStreetMap Nominatim API
+* **Location & Background Tasks**: `expo-location`, `expo-task-manager`
+* **Notifications**: `expo-notifications`
+* **Audio Playback**: `expo-audio` & `expo-document-picker`
+* **Storage**: `@react-native-async-storage/async-storage`
+
+---
+
+## 📂 Project Structure
+
+```
+Rum/
+├── assets/
+│   └── sounds/              # Synthesized offline audio files (bark.wav, radar.wav, etc.)
+├── src/
+│   ├── components/
+│   │   ├── AnimatedTabBar.js # Bottom floating tab bar with animations & haptics
+│   │   ├── AppHeader.js      # Reusable app header component
+│   │   ├── MascotRum.js      # SVG/Animated Mascot Companion component (Dog, Cat, Rabbit, etc.)
+│   │   └── ThemeContext.js   # Theme design tokens, dark/light modes & custom palette builder
+│   ├── screens/
+│   │   ├── DashboardScreen.js # Interactive Map & Destination Search screen
+│   │   ├── HomeScreen.js      # Geofence overview, stats & alarm deck
+│   │   ├── RingingScreen.js   # Triggered alarm modal with snooze & disarm
+│   │   ├── SettingsScreen.js  # Theme, companion, custom colors & options screen
+│   │   ├── SoundsScreen.js    # Sound selector, custom audio upload & volume
+│   │   └── TrackingScreen.js  # Live tracking dashboard with mini-mascot progress
+│   └── tasks/
+│       └── BackgroundGeofenceTask.js # Expo TaskManager background location tracking
+├── App.js                   # Main application controller & navigator
+├── app.json                 # Expo project configuration
+├── package.json             # App dependencies & scripts
+└── README.md                # Project documentation
+```
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-Ensure you have Node.js and NPM installed on your machine.
+
+Ensure you have the following installed on your machine:
+* [Node.js](https://nodejs.org/) (v18 or higher recommended)
+* [npm](https://www.npmjs.com/) or [yarn](https://yarnpkg.com/)
+* [Expo Go](https://expo.dev/client) app on your mobile device (iOS or Android) for testing.
 
 ### Setup Instructions
-1. Clone or navigate to the project directory:
+
+1. **Clone the Repository**:
    ```bash
-   cd /home/naveen/Downloads/Rum
+   git clone https://github.com/m-icky/RUM---Bow-Bow-Geofence-Alarm-App.git
+   cd RUM---Bow-Bow-Geofence-Alarm-App
    ```
-2. Install npm dependencies:
+
+2. **Install Dependencies**:
    ```bash
    npm install
    ```
 
-### Running Locally
-Run the local dev bundler using Expo:
-```bash
-npx expo start --clear
-```
-* Press **`a`** to test on an Android emulator (if configured).
-* Scan the console's **QR Code** using the **Expo Go** application on your physical iOS or Android device.
+3. **Start the Expo Development Server**:
+   ```bash
+   npx expo start --clear
+   ```
+
+4. **Run on Device or Emulator**:
+   * Scan the terminal **QR Code** using **Expo Go** on Android or the Camera app on iOS.
+   * Press **`a`** to open on an Android Emulator.
+   * Press **`w`** to open in a Web browser.
 
 ---
 
-## 📦 Compiling the APK (EAS Cloud Build)
+## 📦 Building Standalone APK (EAS Build)
 
-To build a standalone, installable `.apk` package for your mobile phone:
+To build a standalone `.apk` file for Android:
 
-1. **Log in to your Expo account** (create a free account at [expo.dev](https://expo.dev) if needed):
+1. **Install EAS CLI and Log In**:
    ```bash
+   npm install -g eas-cli
    npx eas-cli login
    ```
-2. **Build the APK**:
+
+2. **Run Android Build Profile**:
    ```bash
    npx eas-cli build -p android --profile preview
    ```
-3. Scan the generated QR Code or open the download link printed in your terminal console to download and install **`Rum.apk`**!
+
+3. Download the finished `.apk` file directly to your phone via the generated URL / QR code in your terminal.
+
+---
+
+## 👨‍💻 Developer & Credits
+
+* **Developer**: m-icky ([GitHub Profile](https://github.com/m-icky))
+* **Repository**: [RUM - Bow-Bow Geofence Alarm App](https://github.com/m-icky/RUM---Bow-Bow-Geofence-Alarm-App)
+
+---
+
+*Made with ❤️ for stress-free journeys!* 🐾
