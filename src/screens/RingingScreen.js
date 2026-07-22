@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Vibration } from 'react-native';
-import { Audio } from 'expo-av';
+import { createAudioPlayer } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
@@ -27,7 +27,8 @@ export default function RingingScreen({
   volume,
   onDismiss,
   onSnooze,
-  companionType = 'dog'
+  companionType = 'dog',
+  companionName = 'Rum'
 }) {
   const { colors } = useTheme();
   const soundRef = useRef(null);
@@ -74,11 +75,11 @@ export default function RingingScreen({
           ? { uri: customAudioData }
           : (TONES_MAP[activeTone] || TONES_MAP.bark);
 
-        const { sound } = await Audio.Sound.createAsync(
-          soundSource,
-          { shouldPlay: true, isLooping: true, volume }
-        );
-        soundRef.current = sound;
+        const player = createAudioPlayer(soundSource);
+        player.loop = true;
+        player.volume = volume;
+        player.play();
+        soundRef.current = player;
       } catch (e) {
         console.error('Failed to initialize alarm audio:', e);
       }
@@ -89,8 +90,9 @@ export default function RingingScreen({
       // Cleanup audio and vibrations
       Vibration.cancel();
       if (soundRef.current) {
-        soundRef.current.stopAsync();
-        soundRef.current.unloadAsync();
+        try {
+          soundRef.current.remove();
+        } catch (e) {}
       }
     };
   }, [activeTone, customAudioData, volume]);
@@ -115,6 +117,19 @@ export default function RingingScreen({
     opacity: pulseAlpha2.value
   }));
 
+  const formatDistance = (m) => {
+    if (!m) return '1.5 km';
+    return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+  };
+
+  const soundTextMap = {
+    dog: 'WOOF! WAKE UP!',
+    cat: 'MEOW! WAKE UP!',
+    rabbit: 'THUMP! WAKE UP!',
+    bird: 'TWEET! WAKE UP!',
+    fish: 'GLUB! WAKE UP!'
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       
@@ -126,26 +141,24 @@ export default function RingingScreen({
         {/* Barking mascot avatar */}
         <View style={styles.mascotWrapper}>
           <MascotRum state="barking" type={companionType} width={240} height={120} />
-          <View style={styles.speechBubble}>
+          <View style={[styles.speechBubble, { backgroundColor: colors.accent }]}>
             <Text style={styles.speechBubbleText}>
-              {(() => {
-                switch (companionType) {
-                  case 'cat': return 'MEOW! WAKE UP!';
-                  case 'rabbit': return 'THUMP! WAKE UP!';
-                  case 'bird': return 'CHIRP! WAKE UP!';
-                  case 'fish': return 'GLUB! WAKE UP!';
-                  default: return 'WOOF! WAKE UP!';
-                }
-              })()}
+              {`${companionName || 'Rum'} says: ${soundTextMap[companionType] || 'WOOF! WAKE UP!'}`}
             </Text>
           </View>
         </View>
       </View>
 
-      {/* Alarm labels */}
-      <View style={styles.labelsCard}>
-        <Text style={[styles.title, { color: colors.text }]}>Arrived at Stop!</Text>
-        <Text style={[styles.subtitle, { color: colors.accent }]}>{destName}</Text>
+      {/* Alarm location labels */}
+      <View style={[styles.labelsCard, { backgroundColor: colors.surfaceOpaque, borderColor: colors.surface }]}>
+        <Text style={[styles.title, { color: colors.text }]}>Arrived at Perimeter!</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+          <Ionicons name="location" size={22} color={colors.accent} style={{ marginRight: 6 }} />
+          <Text style={[styles.subtitle, { color: colors.accent }]} numberOfLines={1}>{destName || 'Location Stop'}</Text>
+        </View>
+        <Text style={[styles.radiusText, { color: colors.textSecondary }]}>
+          Geofence Boundary: {formatDistance(radius)}
+        </Text>
       </View>
 
       {/* Snooze & Dismiss buttons */}
@@ -211,23 +224,30 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   speechBubbleText: {
-    color: '#000',
+    color: '#120a08',
     fontWeight: '900',
     fontSize: 13,
   },
   labelsCard: {
     alignItems: 'center',
-    marginVertical: 20,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginVertical: 15,
   },
   title: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '900',
+    letterSpacing: 0.5,
   },
   subtitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginTop: 8,
-    textAlign: 'center',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  radiusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
   },
   actionsBox: {
     width: '100%',

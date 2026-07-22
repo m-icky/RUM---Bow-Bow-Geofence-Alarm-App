@@ -16,7 +16,8 @@ export default function TrackingScreen({
   onDisarm,
   onTriggerAlarm,
   onApproachingAlarm,
-  companionType = 'dog'
+  companionType = 'dog',
+  companionName = 'Rum'
 }) {
   const { colors } = useTheme();
 
@@ -192,12 +193,13 @@ export default function TrackingScreen({
           <View style={[styles.speechBubble, { backgroundColor: colors.accent }]}>
             <Text style={styles.speechBubbleText}>
               {(() => {
+                const name = companionName || 'Rum';
                 switch (companionType) {
-                  case 'cat': return `“Hunting down the route... we're ${formatDistance(distanceToBoundary)} away! 🐾”`;
-                  case 'rabbit': return `“Hopping along the route... we're ${formatDistance(distanceToBoundary)} away! 🐰”`;
-                  case 'bird': return `“Flying over the route... we're ${formatDistance(distanceToBoundary)} away! 🐦”`;
-                  case 'fish': return `“Swimming along the route... we're ${formatDistance(distanceToBoundary)} away! 🐠”`;
-                  default: return `“Sniffing out the route... we're ${formatDistance(distanceToBoundary)} away! 🐕”`;
+                  case 'cat': return `“${name} is hunting down the route... ${formatDistance(distanceToBoundary)} away! 🐾”`;
+                  case 'rabbit': return `“${name} is hopping along the route... ${formatDistance(distanceToBoundary)} away! 🐰”`;
+                  case 'bird': return `“${name} is flying over the route... ${formatDistance(distanceToBoundary)} away! 🐦”`;
+                  case 'fish': return `“${name} is swimming along the route... ${formatDistance(distanceToBoundary)} away! 🐠”`;
+                  default: return `“${name} is sniffing out the route... ${formatDistance(distanceToBoundary)} away! 🐕”`;
                 }
               })()}
             </Text>

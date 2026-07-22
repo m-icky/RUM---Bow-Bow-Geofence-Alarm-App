@@ -21,7 +21,9 @@
         "NSLocationAlwaysUsageDescription": "Rum needs background location access to trigger the alarm even when your screen is locked.",
         "UIBackgroundModes": [
           "location",
-          "audio"
+          "audio",
+          "fetch",
+          "remote-notification"
         ]
       }
     },
@@ -48,7 +50,10 @@
         {
           "locationAlwaysPermission": "Allow Rum to track location in the background for commuter alarms."
         }
-      ]
+      ],
+      "expo-task-manager",
+      "expo-audio",
+      "expo-asset"
     ],
     "extra": {
       "eas": {

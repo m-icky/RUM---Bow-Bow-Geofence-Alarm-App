@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, FlatList, Share, Platform, StatusBar, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { useTheme } from '../components/ThemeContext';
 import MascotRum from '../components/MascotRum';
+import AppHeader from '../components/AppHeader';
 
 // Compact retro dark theme for the map layout
 const mapDarkStyle = [
@@ -100,8 +101,8 @@ export default function DashboardScreen({
   // Sync state changes with the Leaflet WebView map once it's loaded
   useEffect(() => {
     if (isMapReady && webViewRef.current) {
-      const isRouteStale = !routeDestCoords || 
-        localDestCoords.latitude !== routeDestCoords.latitude || 
+      const isRouteStale = !routeDestCoords ||
+        localDestCoords.latitude !== routeDestCoords.latitude ||
         localDestCoords.longitude !== routeDestCoords.longitude;
 
       const payload = {
@@ -169,7 +170,13 @@ export default function DashboardScreen({
   const [routeDistance, setRouteDistance] = useState(0);
   const [routeDuration, setRouteDuration] = useState(0);
   const [searchTimer, setSearchTimer] = useState(null);
-  
+
+  // Live Speed Tracking State & Refs
+  const [currentSpeed, setCurrentSpeed] = useState(0);
+  const [detectedAvgSpeed, setDetectedAvgSpeed] = useState(null);
+  const speedHistoryRef = useRef([]);
+  const lastLocationRef = useRef(null);
+
   // Collapse toggle
   const [isDeckMinimized, setIsDeckMinimized] = useState(false);
 
@@ -179,9 +186,9 @@ export default function DashboardScreen({
 
   const cardAnimatedStyle = useAnimatedStyle(() => {
     return {
-      height: withTiming(isDeckMinimized ? 0 : 120, { duration: 500 }),
-      opacity: withTiming(isDeckMinimized ? 0 : 1, { duration: 500 }),
-      marginBottom: withTiming(isDeckMinimized ? 0 : 10, { duration: 500 }),
+      height: withTiming(isDeckMinimized ? 0 : 60, { duration: 300 }),
+      opacity: withTiming(isDeckMinimized ? 0 : 1, { duration: 300 }),
+      marginBottom: withTiming(isDeckMinimized ? 0 : 4, { duration: 300 }),
       overflow: 'hidden',
     };
   });
@@ -209,7 +216,7 @@ export default function DashboardScreen({
           {
             accuracy: Location.Accuracy.BestForNavigation,
             timeInterval: 2000, // Query device every 2 seconds
-            distanceInterval: 5  // or every 5 meters moved
+            distanceInterval: 3  // or every 3 meters moved
           },
           (location) => {
             const coords = {
@@ -217,6 +224,47 @@ export default function DashboardScreen({
               longitude: location.coords.longitude
             };
             setLocalFromCoords(coords);
+
+            const now = location.timestamp || Date.now();
+            let detectedKmH = null;
+
+            // 1. Direct hardware GPS speed (in m/s -> convert to km/h)
+            if (location.coords.speed !== undefined && location.coords.speed !== null && location.coords.speed >= 0) {
+              detectedKmH = location.coords.speed * 3.6;
+            }
+
+            // 2. Fallback / verification using coordinate delta and timestamp
+            if (lastLocationRef.current) {
+              const prev = lastLocationRef.current;
+              const timeDiffSec = (now - prev.timestamp) / 1000;
+              if (timeDiffSec > 0.5) {
+                const distMeters = getDistance(prev.coords, coords);
+                const calcKmH = (distMeters / timeDiffSec) * 3.6;
+
+                // Use calculated speed if hardware speed is unavailable or 0 while moving
+                if (detectedKmH === null || (detectedKmH < 1 && calcKmH > 2)) {
+                  detectedKmH = calcKmH;
+                }
+              }
+            }
+
+            lastLocationRef.current = { coords, timestamp: now };
+
+            if (detectedKmH !== null) {
+              const roundedSpeed = Math.round(detectedKmH);
+              setCurrentSpeed(roundedSpeed);
+
+              // Maintain rolling average for moving speed (> 2 km/h filters stationary jitter)
+              if (detectedKmH > 2 && detectedKmH < 250) {
+                speedHistoryRef.current.push(detectedKmH);
+                if (speedHistoryRef.current.length > 30) {
+                  speedHistoryRef.current.shift();
+                }
+                const sum = speedHistoryRef.current.reduce((a, b) => a + b, 0);
+                const avg = Math.round(sum / speedHistoryRef.current.length);
+                setDetectedAvgSpeed(avg);
+              }
+            }
           }
         );
       } catch (err) {
@@ -320,7 +368,7 @@ export default function DashboardScreen({
           }
         });
         const data = await res.json();
-        
+
         if (Array.isArray(data)) {
           const results = data.map(item => {
             const parts = item.display_name.split(',');
@@ -354,7 +402,7 @@ export default function DashboardScreen({
         }
       } catch (e) {
         console.error("Nominatim search failed:", e);
-        
+
         // Simple fuzzy match helper for local presets in case of spelling mistakes / offline fallback
         const filtered = PRESET_PLACES.filter(place => {
           const target = place.name.toLowerCase();
@@ -393,7 +441,7 @@ export default function DashboardScreen({
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         };
-        
+
         if (activeInput === 'from') {
           setLocalFromCoords(coords);
           setFromQuery('Current Location');
@@ -482,8 +530,8 @@ export default function DashboardScreen({
     const dLat = (c2.latitude - c1.latitude) * Math.PI / 180;
     const dLng = (c2.longitude - c1.longitude) * Math.PI / 180;
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1) * Math.cos(lat2) *
-              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      Math.cos(lat1) * Math.cos(lat2) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
@@ -510,9 +558,9 @@ export default function DashboardScreen({
         const url = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${localFromCoords.longitude},${localFromCoords.latitude};${localDestCoords.longitude},${localDestCoords.latitude}?overview=full&geometries=geojson`;
         const res = await fetch(url);
         const data = await res.json();
-        
+
         if (!active) return; // Ignore stale request
-        
+
         if (data.routes && data.routes.length > 0) {
           const route = data.routes[0];
           const coords = route.geometry.coordinates.map(pt => ({
@@ -562,7 +610,7 @@ export default function DashboardScreen({
   const onMarkerDragEnd = async (e) => {
     const coords = e.nativeEvent.coordinate;
     setLocalDestCoords(coords);
-    
+
     try {
       const address = await Location.reverseGeocodeAsync(coords);
       if (address && address.length > 0) {
@@ -571,14 +619,14 @@ export default function DashboardScreen({
         const placeParts = [];
         if (first.name) placeParts.push(first.name);
         else if (first.street) placeParts.push(first.street);
-        
+
         if (first.district) placeParts.push(first.district);
         else if (first.city) placeParts.push(first.city);
-        
-        const placeName = placeParts.length > 0 
-          ? placeParts.join(', ') 
+
+        const placeName = placeParts.length > 0
+          ? placeParts.join(', ')
           : `Coordinates: ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
-        
+
         setLocalDestName(placeName);
         setSearchQuery(placeName);
       } else {
@@ -642,7 +690,7 @@ export default function DashboardScreen({
     setLocalDestName(alarm.name);
     setSearchQuery(alarm.name);
     setLocalRadius(alarm.radius);
-    
+
     if (mapRef) {
       mapRef.animateToRegion({
         ...alarm.coords,
@@ -658,7 +706,7 @@ export default function DashboardScreen({
     setLocalDestName(alarm.name);
     setLocalDestCoords(alarm.coords);
     setLocalRadius(alarm.radius);
-    
+
     if (mapRef) {
       mapRef.animateToRegion({
         ...alarm.coords,
@@ -685,25 +733,44 @@ export default function DashboardScreen({
       `Are you sure you want to remove this active ${companionSound} alarm?`,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => {
-          onDeleteAlarm(id);
-          showToast('Alarm deleted successfully.');
-        } }
+        {
+          text: "Delete", style: "destructive", onPress: () => {
+            onDeleteAlarm(id);
+            showToast('Alarm deleted successfully.');
+          }
+        }
       ]
     );
   };
+
+  // Derive effective average speed dynamically
+  const getEffectiveAvgSpeed = () => {
+    if (detectedAvgSpeed !== null && detectedAvgSpeed > 0) {
+      return detectedAvgSpeed;
+    }
+    if (routeDistance > 0 && routeDuration > 0) {
+      const osrmSpeed = Math.round((routeDistance / 1000) / (routeDuration / 3600));
+      if (osrmSpeed > 5 && osrmSpeed < 200) {
+        return osrmSpeed;
+      }
+    }
+    return 60;
+  };
+
+  const effectiveAvgSpeed = getEffectiveAvgSpeed();
 
   const formatDistance = (m) => {
     return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
   };
 
-  const formatRouteDuration = (distanceMeters) => {
+  const formatRouteDuration = (distanceMeters, speedKmH) => {
     if (!distanceMeters) return '0 min';
+    const speed = speedKmH && speedKmH > 0 ? speedKmH : 60;
     const distanceKm = distanceMeters / 1000;
-    const hours = distanceKm / 60; // Estimated from average speed of 60 km/h
-    
+    const hours = distanceKm / speed;
+
     if (hours < 1) {
-      const minutes = Math.round(hours * 60);
+      const minutes = Math.max(1, Math.round(hours * 60));
       return `${minutes} min`;
     } else {
       const hrs = Math.floor(hours);
@@ -717,97 +784,98 @@ export default function DashboardScreen({
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      
-      {/* Search Header Panel (Purple gradient-like design) */}
-      <View style={[styles.searchPanel, { backgroundColor: colors.surfaceOpaque }]}>
-        <View style={styles.searchHeaderTop}>
-          <View style={styles.userSection}>
-            <View style={styles.userAvatar}>
-              <Ionicons name="person" size={14} color={colors.text} />
-            </View>
-            <Text style={[styles.userNameText, { color: colors.text }]}>{companionName} {companionSound}</Text>
-          </View>
-          <TouchableOpacity style={styles.departToggle}>
-            <Text style={{ color: colors.accent, fontSize: 11, fontWeight: '700' }}>{companionSound} 🐾</Text>
-          </TouchableOpacity>
-        </View>
 
+      {/* Map — fills entire container */}
+      <WebView
+        ref={webViewRef}
+        style={StyleSheet.absoluteFill}
+        originWhitelist={['*']}
+        source={{ html: LEAFLET_HTML }}
+        onMessage={handleMapMessage}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+      />
+
+      {/* Search Panel — floats at top */}
+      <View style={[styles.searchPanel, { backgroundColor: colors.surfaceOpaque }]}>
         <View style={styles.searchInputsContainer}>
           <View style={styles.inputsColumn}>
             {/* From Input */}
-            <View style={[styles.inputRow, { borderBottomColor: 'rgba(255,255,255,0.05)', borderBottomWidth: 1 }]}>
-              <Ionicons name="radio-button-on" size={16} color="#2ecc71" style={{ marginRight: 10 }} />
+            <View style={[styles.inputRow, { borderBottomColor: colors.surface, borderBottomWidth: 1 }]}>
+              <Ionicons name="radio-button-on" size={14} color="#2ecc71" style={{ marginRight: 8 }} />
               <TextInput
                 style={[styles.searchInputText, { color: colors.text }]}
                 value={fromQuery}
                 onFocus={() => handleSearchFocus('from')}
                 onChangeText={(text) => handleSearchChange(text, 'from')}
                 placeholder="From: Start location..."
-                placeholderTextColor="rgba(255,255,255,0.4)"
+                placeholderTextColor={colors.textSecondary}
               />
               {activeInput === 'from' && fromQuery.length > 0 && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => {
                     setFromQuery('');
                     setSuggestions([
                       { name: 'Use Current Location', isCurrentLocation: true, desc: 'Set to your device GPS position' },
                       ...PRESET_PLACES
                     ]);
-                  }} 
-                  style={{ padding: 6 }}
+                  }}
+                  style={{ padding: 4 }}
                 >
-                  <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.4)" />
+                  <Ionicons name="close-circle" size={14} color={colors.textSecondary} />
                 </TouchableOpacity>
               )}
             </View>
             {/* To Input */}
             <View style={styles.inputRow}>
-              <Ionicons name="location" size={16} color={colors.accent} style={{ marginRight: 10 }} />
+              <Ionicons name="location" size={14} color={colors.accent} style={{ marginRight: 8 }} />
               <TextInput
                 style={[styles.searchInputText, { color: colors.text }]}
                 value={searchQuery}
                 onFocus={() => handleSearchFocus('to')}
                 onChangeText={(text) => handleSearchChange(text, 'to')}
                 placeholder="To: Search destination..."
-                placeholderTextColor="rgba(255,255,255,0.4)"
+                placeholderTextColor={colors.textSecondary}
               />
               {activeInput === 'to' && searchQuery.length > 0 && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => {
                     setSearchQuery('');
                     setSuggestions([
                       { name: 'Use Current Location', isCurrentLocation: true, desc: 'Set to your device GPS position' },
                       ...PRESET_PLACES
                     ]);
-                  }} 
-                  style={{ padding: 6 }}
+                  }}
+                  style={{ padding: 4 }}
                 >
-                  <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.4)" />
+                  <Ionicons name="close-circle" size={14} color={colors.textSecondary} />
                 </TouchableOpacity>
               )}
             </View>
           </View>
           {/* Swap button */}
           <TouchableOpacity style={[styles.swapBtn, { backgroundColor: colors.surface }]} onPress={swapLocations}>
-            <Ionicons name="swap-vertical" size={20} color={colors.text} />
+            <Ionicons name="swap-vertical" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Suggestion List Overlay rendered at root level to prevent parent clipping */}
+      {/* Suggestion list — floats below search */}
       {suggestions.length > 0 && (
-        <View style={[styles.suggestionsBox, { top: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 148 : 192, backgroundColor: colors.surfaceOpaque, borderColor: colors.surface }]}>
+        <View style={[styles.suggestionsBox, { backgroundColor: colors.surfaceOpaque, borderColor: colors.surface }]}>
           <FlatList
             data={suggestions}
             keyExtractor={(item, index) => item.isCurrentLocation ? "current-location" : `${item.name}-${item.latitude}-${item.longitude}-${index}`}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.suggestionItem} onPress={() => selectSuggestion(item)}>
-                <Ionicons 
-                  name={item.isCurrentLocation ? "locate" : "location-outline"} 
-                  size={16} 
-                  color={item.isCurrentLocation ? "#2ecc71" : colors.accent} 
-                  style={{ marginRight: 10 }} 
+                <Ionicons
+                  name={item.isCurrentLocation ? "locate" : "location-outline"}
+                  size={16}
+                  color={item.isCurrentLocation ? "#2ecc71" : colors.accent}
+                  style={{ marginRight: 10 }}
                 />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.suggestName, { color: item.isCurrentLocation ? "#2ecc71" : colors.text }]}>{item.name}</Text>
@@ -819,222 +887,95 @@ export default function DashboardScreen({
         </View>
       )}
 
-      {/* Map Module */}
-      <View style={[styles.mapContainer, { flex: isDeckMinimized ? 1.8 : 1.1 }]}>
-        <WebView
-          ref={webViewRef}
-          style={styles.map}
-          originWhitelist={['*']}
-          source={{ html: LEAFLET_HTML }}
-          onMessage={handleMapMessage}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          showsVerticalScrollIndicator={false}
-          showsHorizontalScrollIndicator={false}
-        />
-        
-        {/* Floating Actions Overlay (Share, Favorite) */}
-        <View style={styles.mapFloatStack}>
-          {/* Favorite heart button */}
-          <TouchableOpacity 
-            style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]} 
-            onPress={toggleFavorite}
-          >
-            <Ionicons 
-              name={favorites.some(f => f.name === localDestName) ? "heart" : "heart-outline"} 
-              size={20} 
-              color={favorites.some(f => f.name === localDestName) ? "#e74c3c" : colors.textSecondary} 
-            />
-          </TouchableOpacity>
-
-          {/* Share button */}
-          <TouchableOpacity 
-            style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]} 
-            onPress={shareLocation}
-          >
-            <Ionicons name="share-social" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Top-Right Quick Zoom Overlay (Destination, Start, Live GPS) */}
-        <View style={styles.mapTopRightStack}>
-          <TouchableOpacity 
-            style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]} 
-            onPress={zoomToDest}
-          >
-            <Ionicons name="location" size={18} color={colors.accent} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]} 
-            onPress={zoomToFrom}
-          >
-            <Ionicons name="radio-button-on" size={18} color="#2ecc71" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]} 
-            onPress={zoomToGPS}
-          >
-            <Ionicons name="locate" size={18} color="#3498db" />
-          </TouchableOpacity>
-        </View>
+      {/* Right-side floating buttons: Zoom + Favorite + Share */}
+      <View style={styles.mapTopRightStack}>
+        <TouchableOpacity
+          style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]}
+          onPress={zoomToDest}
+        >
+          <Ionicons name="location" size={18} color={colors.accent} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]}
+          onPress={zoomToFrom}
+        >
+          <Ionicons name="radio-button-on" size={18} color="#2ecc71" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]}
+          onPress={zoomToGPS}
+        >
+          <Ionicons name="locate" size={18} color="#3498db" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]}
+          onPress={toggleFavorite}
+        >
+          <Ionicons
+            name={favorites.some(f => f.name === localDestName) ? "heart" : "heart-outline"}
+            size={18}
+            color={favorites.some(f => f.name === localDestName) ? "#e74c3c" : colors.textSecondary}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]}
+          onPress={shareLocation}
+        >
+          <Ionicons name="share-social" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
       </View>
 
-      {/* Control panel deck (Suggested Routes & Radius Boundary) */}
-      <View style={[styles.deck, { backgroundColor: colors.surface }]}>
-        
-        {/* Collapsible details header */}
-        <View style={[styles.deckHeader, {display:"flex", flexDirection:"row", alignItems:"center"} ]}>
-          <Text style={[styles.sectionHeading, { color: colors.textSecondary, marginBottom: 0 }]}>Route Details</Text>
-          <TouchableOpacity onPress={toggleDeck} style={{ padding: 4 }}>
-            <Animated.View style={arrowAnimatedStyle}>
-              <Ionicons name="chevron-down" size={20} color={colors.accent} />
-            </Animated.View>
-          </TouchableOpacity>
-        </View>
-        
-        <Animated.View style={[styles.routeDetailsCard, { backgroundColor: colors.surfaceOpaque }, cardAnimatedStyle]}>
-          <View style={styles.detailsRow}>
-            <View style={styles.detailsCell}>
-              <Ionicons name="resize-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-              <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Total Distance</Text>
+      {/* Floating Bottom Deck */}
+      <View style={[styles.deck, { backgroundColor: colors.surfaceOpaque }]}>
+
+        {/* Stats strip */}
+        <Animated.View style={[styles.routeDetailsCard, { backgroundColor: colors.surface }, cardAnimatedStyle]}>
+          <View style={styles.statsStrip}>
+            <View style={styles.statCell}>
+              <Ionicons name="resize-outline" size={13} color={colors.accent} />
+              <Text style={[styles.statVal, { color: colors.text }]}>{formatDistance(routeDistance)}</Text>
+              <Text style={[styles.statLbl, { color: colors.textSecondary }]}>Distance</Text>
             </View>
-            <Text style={[styles.detailsVal, { color: colors.text }]}>{formatDistance(routeDistance)}</Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: 'rgba(255,255,255,0.04)' }]} />
-          
-          <View style={styles.detailsRow}>
-            <View style={styles.detailsCell}>
-              <Ionicons name="time-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-              <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Est. Commute Time</Text>
+            <View style={[styles.statDivider, { backgroundColor: colors.surface }]} />
+            <View style={styles.statCell}>
+              <Ionicons name="time-outline" size={13} color={colors.accent} />
+              <Text style={[styles.statVal, { color: colors.text }]}>{formatRouteDuration(routeDistance, effectiveAvgSpeed)}</Text>
+              <Text style={[styles.statLbl, { color: colors.textSecondary }]}>Time</Text>
             </View>
-            <Text style={[styles.detailsVal, { color: colors.text }]}>{formatRouteDuration(routeDistance)}</Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: 'rgba(255,255,255,0.04)' }]} />
-          
-          <View style={styles.detailsRow}>
-            <View style={styles.detailsCell}>
-              <Ionicons name="speedometer-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-              <Text style={[styles.detailsLabel, { color: colors.textSecondary }]}>Average Speed</Text>
+            <View style={[styles.statDivider, { backgroundColor: colors.surface }]} />
+            <View style={styles.statCell}>
+              <Ionicons name="speedometer-outline" size={13} color={colors.accent} />
+              <Text style={[styles.statVal, { color: colors.text }]}>~{effectiveAvgSpeed} km/h</Text>
+              <Text style={[styles.statLbl, { color: colors.textSecondary }]}>{currentSpeed > 0 ? `Live ${currentSpeed}` : 'Avg Speed'}</Text>
             </View>
-            <Text style={[styles.detailsVal, { color: colors.text }]}>60 km/h</Text>
           </View>
         </Animated.View>
 
-        {/* Configurations inputs */}
-        <View style={styles.column}>
-          <View style={styles.sliderHeader}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Alarm Perimeter Boundary:</Text>
-            <Text style={[styles.sliderValue, { color: colors.accent }]}>{formatDistance(localRadius)}</Text>
-          </View>
-          
-          <View style={styles.sliderTrackWrapper}>
-            <Slider
-              minimumValue={100}
-              maximumValue={5000}
-              step={50}
-              value={localRadius}
-              onValueChange={(val) => setLocalRadius(Math.round(val))}
-              minimumTrackTintColor={colors.accent}
-              maximumTrackTintColor={colors.surfaceOpaque}
-              thumbTintColor={colors.accent}
-              style={{ width: '100%', height: 40 }}
-            />
-          </View>
+        {/* Perimeter row */}
+        <View style={styles.sliderRow}>
+          <Text style={[styles.sliderLabel, { color: colors.textSecondary }]}>Perimeter</Text>
+          <Slider
+            minimumValue={100}
+            maximumValue={5000}
+            step={50}
+            value={localRadius}
+            onValueChange={(val) => setLocalRadius(Math.round(val))}
+            minimumTrackTintColor={colors.accent}
+            maximumTrackTintColor={colors.surface}
+            thumbTintColor={colors.accent}
+            style={{ flex: 1, height: 34, marginHorizontal: 8 }}
+          />
+          <Text style={[styles.sliderValue, { color: colors.accent }]}>{formatDistance(localRadius)}</Text>
         </View>
-        {showMascotTips && (
-          <View style={styles.mascotTipRow}>
-            <MascotRum state="idle" type={companionType} width={60} height={30} />
-            <View style={[styles.mascotTipBubble, { backgroundColor: colors.surfaceOpaque, borderColor: colors.surface }]}>
-              <Text style={[styles.mascotTipText, { color: colors.text }]}>
-                {(() => {
-                  const tips = {
-                    dog: {
-                      tight: "That's a tight perimeter! I'll bark extra loud so you don't miss it! 🔊",
-                      wide: "Whoa, big radius! Plenty of time to stretch before we arrive! 🐾",
-                      normal: "Looking good! I'll keep my nose on the route for you! 👃",
-                    },
-                    cat: {
-                      tight: "Tiny zone? I'll pounce on that alarm the second we're close! 🐾",
-                      wide: "Such a wide area… perfect for a catnap on the way! 😸",
-                      normal: "I've got my whiskers tuned to this route. Purr-fect! 🐱",
-                    },
-                    rabbit: {
-                      tight: "Small hop zone! I'll thump my feet the moment we arrive! 🐰",
-                      wide: "Lots of room to hop around before we get there! 🥕",
-                      normal: "Ears up and listening! We'll hop there in no time! 🐇",
-                    },
-                    bird: {
-                      tight: "Narrow landing zone! I'll chirp loud when it's time! 🐦",
-                      wide: "Wide airspace! I can circle around for a while! 🪶",
-                      normal: "Wings spread and gliding along the route! Tweet tweet! 🎶",
-                    },
-                    fish: {
-                      tight: "Shallow waters ahead! I'll splash when we're close! 🐠",
-                      wide: "Deep ocean of distance! Time to swim at ease! 🌊",
-                      normal: "Swimming smoothly along the current! Glub glub! 💧",
-                    },
-                  };
-                  const t = tips[companionType] || tips.dog;
-                  return localRadius < 500 ? t.tight : localRadius > 3000 ? t.wide : t.normal;
-                })()}
-              </Text>
-            </View>
-          </View>
-        )}
 
         <TouchableOpacity style={[styles.armBtn, { backgroundColor: colors.accent }]} onPress={handleMainBtnPress}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name={editingAlarmId ? "checkmark-circle" : "notifications"} size={18} color="#120a08" style={{ marginRight: 6 }} />
-            <Text style={styles.armBtnText}>{editingAlarmId ? "Update Geofence Alarm" : "Arm Location Alarm"}</Text>
+            <Ionicons name={editingAlarmId ? "checkmark-circle" : "notifications"} size={16} color="#120a08" style={{ marginRight: 6 }} />
+            <Text style={styles.armBtnText}>{editingAlarmId ? "Update Geofence Alarm" : "Add Location Alarm"}</Text>
           </View>
         </TouchableOpacity>
-
-        {alarms && alarms.length > 0 && (
-          <View style={{ marginTop: 15 }}>
-            <Text style={[styles.sectionHeading, { color: colors.textSecondary, marginBottom: 8 }]}>
-              Armed Alarms ({alarms.length})
-            </Text>
-            <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled={true}>
-              {alarms.map(alarm => (
-                <View key={alarm.id} style={[styles.alarmListItem, { backgroundColor: colors.surfaceOpaque, borderColor: colors.surface, borderLeftColor: alarm.isActive ? '#2ecc71' : 'rgba(255,255,255,0.1)' }]}>
-                  <TouchableOpacity onPress={() => handleAlarmPress(alarm)} style={{ flex: 1, paddingRight: 10 }}>
-                    <Text style={[styles.alarmListName, { color: alarm.isActive ? colors.text : colors.textSecondary }]} numberOfLines={1}>
-                      {alarm.name}
-                    </Text>
-                    <Text style={styles.alarmListSub}>
-                      Radius: {formatDistance(alarm.radius)} | {alarm.isActive ? 'Active 📡' : 'Triggered / Off'}
-                    </Text>
-                  </TouchableOpacity>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <TouchableOpacity onPress={() => handleEditPress(alarm)} style={styles.alarmActionBtn}>
-                      <Ionicons name="create-outline" size={16} color={colors.accent} />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => confirmDelete(alarm.id)} style={[styles.alarmActionBtn, { marginLeft: 8 }]}>
-                      <Ionicons name="trash-outline" size={16} color="#e74c3c" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
       </View>
 
-      {/* Tabs navigation */}
-      <View style={[styles.nav, { backgroundColor: colors.surfaceOpaque, borderTopColor: colors.surface }]}>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="map" size={20} color={colors.accent} />
-          <Text style={[styles.navText, { color: colors.accent }]}>Map</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('sounds')}>
-          <Ionicons name="musical-notes" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Sounds</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('settings')}>
-          <Ionicons name="settings" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Settings</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Dynamic Animated Glassmorphic Toast Notification Overlay */}
       {toastMsg && (
@@ -1051,20 +992,34 @@ export default function DashboardScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'space-between',
+    position: 'relative',
+  },
+  header: {
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
   },
   searchPanel: {
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 15 : 50,
-    paddingBottom: 15,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    zIndex: 10,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    zIndex: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 5,
+    shadowRadius: 6,
+    elevation: 10,
+    margin: 10,
+    borderRadius: 14,
   },
   searchHeaderTop: {
     flexDirection: 'row',
@@ -1098,7 +1053,7 @@ const styles = StyleSheet.create({
   searchInputsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.15)',
+    backgroundColor: 'rgba(167, 167, 167, 0.15)',
     borderRadius: 12,
     padding: 6,
   },
@@ -1127,18 +1082,18 @@ const styles = StyleSheet.create({
   },
   suggestionsBox: {
     position: 'absolute',
-    top: 124,
-    left: 20,
-    right: 20,
+    top: 100,
+    left: 10,
+    right: 10,
     borderRadius: 12,
     borderWidth: 1,
-    maxHeight: 200,
+    maxHeight: 220,
     zIndex: 100,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 30,
   },
   suggestionItem: {
     flexDirection: 'row',
@@ -1157,8 +1112,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   mapContainer: {
-    flex: 1.1,
-    position: 'relative',
+    flex: 1,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
@@ -1173,21 +1127,21 @@ const styles = StyleSheet.create({
   },
   mapTopRightStack: {
     position: 'absolute',
-    top: 16,
-    right: 16,
-    gap: 10,
-    zIndex: 10,
-    elevation: 10,
+    top: 124,
+    right: 14,
+    gap: 8,
+    zIndex: 15,
+    elevation: 15,
   },
   mapFloatBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 5,
     borderWidth: 1,
@@ -1210,11 +1164,63 @@ const styles = StyleSheet.create({
     backgroundColor: '#2ecc71',
   },
   deck: {
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 15,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 75,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 20,
+    zIndex: 20,
+  },
+  statsStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingVertical: 4,
+  },
+  statCell: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  statVal: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  statLbl: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  statDivider: {
+    width: 1,
+    height: 36,
+    marginHorizontal: 4,
+  },
+  deckHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  sliderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  sliderLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    width: 68,
   },
   sectionHeading: {
     fontSize: 11,
@@ -1224,9 +1230,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   routeDetailsCard: {
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
+    borderRadius: 10,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    marginBottom: 4,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.02)',
   },
@@ -1464,7 +1471,8 @@ const LEAFLET_HTML = `
           const coords = message.payload;
           if (coords.length > 0) {
             const bounds = L.latLngBounds(coords.map(c => [c.latitude, c.longitude]));
-            map.fitBounds(bounds, { padding: [50, 50] });
+            // paddingTopLeft: [left, top], paddingBottomRight: [right, bottom]
+            map.fitBounds(bounds, { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
           }
         }
       } catch (err) {
@@ -1489,9 +1497,17 @@ const LEAFLET_HTML = `
       otherAlarmMarkers = [];
       otherAlarmCircles = [];
 
-      // If it is the first load and we have destination coordinates, center the map there!
+      // If it is the first load and we have destination coordinates, fit both markers in view
       if (isFirstLoad && data.localDestCoords) {
-        map.setView([data.localDestCoords.latitude, data.localDestCoords.longitude], 12);
+        if (data.localFromCoords) {
+          const bounds = L.latLngBounds([
+            [data.localFromCoords.latitude, data.localFromCoords.longitude],
+            [data.localDestCoords.latitude, data.localDestCoords.longitude]
+          ]);
+          map.fitBounds(bounds, { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
+        } else {
+          map.setView([data.localDestCoords.latitude, data.localDestCoords.longitude], 12);
+        }
         isFirstLoad = false;
       }
 
@@ -1562,6 +1578,7 @@ const LEAFLET_HTML = `
           color: '#3897f0',
           weight: 4
         }).addTo(map);
+        map.fitBounds(routePolyline.getBounds(), { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
       }
 
       // 4. Other Armed Alarms (Purple Pins)

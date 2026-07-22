@@ -2,6 +2,20 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const THEMES = {
+
+  daylight: {
+    name: 'Daylight Light',
+    background: '#f1f5f9',
+    surface: 'rgba(255, 255, 255, 0.95)',
+    surfaceOpaque: '#ffffff',
+    text: '#0f172a',
+    textSecondary: '#64748b',
+    accent: '#2563eb',
+    accentHover: '#3b82f6',
+    accentRgba: 'rgba(37, 99, 235, 0.15)',
+    dogPrimary: '#d97706',
+    dogSecondary: '#b45309',
+  },
   classic: {
     name: 'Classic Cocoa',
     background: '#1c1412',
@@ -59,7 +73,7 @@ export const THEMES = {
 const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  const [themeKey, setThemeKey] = useState('classic');
+  const [themeKey, setThemeKey] = useState('daylight');
   const [customColors, setCustomColors] = useState(null);
 
   useEffect(() => {
@@ -134,7 +148,7 @@ export const ThemeProvider = ({ children }) => {
         dogSecondary: hexToRgba(customColors.primary, 0.7),
       };
     }
-    return THEMES[themeKey] || THEMES.classic;
+    return THEMES[themeKey] || THEMES.daylight;
   };
 
   return (

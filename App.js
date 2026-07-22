@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, SafeAreaView, StatusBar, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { StyleSheet, View, StatusBar, Text, ScrollView, TouchableOpacity, Platform, Animated, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { ThemeProvider, useTheme } from './src/components/ThemeContext';
+import {
+  startBackgroundGeofenceTask,
+  stopBackgroundGeofenceTask,
+  BACKGROUND_GEOFENCE_TASK,
+} from './src/tasks/BackgroundGeofenceTask';
 
 // Configure notification behavior (show even when app is in foreground)
 Notifications.setNotificationHandler({
@@ -15,11 +21,13 @@ Notifications.setNotificationHandler({
 });
 
 // Import Screens
+import HomeScreen from './src/screens/HomeScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import TrackingScreen from './src/screens/TrackingScreen';
 import RingingScreen from './src/screens/RingingScreen';
 import SoundsScreen from './src/screens/SoundsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import AnimatedTabBar from './src/components/AnimatedTabBar';
 
 // Splash Screen
 import MascotRum from './src/components/MascotRum';
@@ -95,7 +103,7 @@ if (global.ErrorUtils) {
 }
 
 function MainAppShell() {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   
   const [lastCrash, setLastCrash] = useState(null);
 
@@ -251,7 +259,13 @@ function MainAppShell() {
         
         const rawAlarms = await AsyncStorage.getItem('rum_active_alarms');
         if (rawAlarms) {
-          setAlarms(JSON.parse(rawAlarms));
+          const loadedAlarms = JSON.parse(rawAlarms);
+          setAlarms(loadedAlarms);
+          // Resume background task if there are active alarms
+          const hasActiveAlarms = loadedAlarms.some(a => a.isActive);
+          if (hasActiveAlarms) {
+            startBackgroundGeofenceTask().catch(e => console.error('[BGTask] Resume error:', e));
+          }
         }
       } catch (e) {
         console.error('Failed to load global state:', e);
@@ -277,15 +291,35 @@ function MainAppShell() {
   useEffect(() => {
     if (currentScreen === 'splash') {
       const timer = setTimeout(() => {
-        setCurrentScreen('dashboard');
+        setCurrentScreen('home');
       }, 2500);
       return () => clearTimeout(timer);
     }
   }, [currentScreen]);
 
-  // Navigate helper
+  const MAIN_TABS = ['home', 'dashboard', 'sounds', 'settings'];
+  const scrollViewRef = useRef(null);
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const screenWidth = Dimensions.get('window').width;
+
+  // Navigate helper with smooth horizontal scrolling
   const navigateTo = (screen) => {
-    setCurrentScreen(screen);
+    const targetIndex = MAIN_TABS.indexOf(screen);
+    if (targetIndex !== -1 && scrollViewRef.current) {
+      setCurrentScreen(screen);
+      scrollViewRef.current.scrollTo({ x: targetIndex * screenWidth, animated: true });
+    } else {
+      setCurrentScreen(screen);
+    }
+  };
+
+  const handleMomentumScrollEnd = (e) => {
+    const offsetX = e.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / screenWidth);
+    const targetScreen = MAIN_TABS[index];
+    if (targetScreen && targetScreen !== currentScreen) {
+      setCurrentScreen(targetScreen);
+    }
   };
 
   // Haversine distance calculator
@@ -364,7 +398,7 @@ function MainAppShell() {
   }, [alarms]);
 
   // CRUD Operations for Alarms List
-  const armAlarm = (dest, coords, r) => {
+  const armAlarm = async (dest, coords, r) => {
     const newAlarm = {
       id: String(Date.now()),
       name: dest,
@@ -374,15 +408,31 @@ function MainAppShell() {
     };
     const updated = [...alarms, newAlarm];
     setAlarms(updated);
-    AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    // Start background task whenever an alarm is armed
+    await startBackgroundGeofenceTask();
   };
 
-  const deleteAlarm = (id) => {
+  const deleteAlarm = async (id) => {
     const updated = alarms.filter(a => a.id !== id);
     setAlarms(updated);
-    AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    // Clear approaching notified flag for this alarm
     if (notifiedApproachingRef.current) {
       delete notifiedApproachingRef.current[id];
+    }
+    // Also clear bg notified flag for this alarm
+    try {
+      const raw = await AsyncStorage.getItem('rum_bg_notified') || '{}';
+      const notified = JSON.parse(raw);
+      delete notified[`approach_${id}`];
+      delete notified[`triggered_${id}`];
+      await AsyncStorage.setItem('rum_bg_notified', JSON.stringify(notified));
+    } catch (e) {}
+    // Stop background task if no active alarms remain
+    const remaining = updated.filter(a => a.isActive);
+    if (remaining.length === 0) {
+      await stopBackgroundGeofenceTask();
     }
   };
 
@@ -395,6 +445,23 @@ function MainAppShell() {
     });
     setAlarms(updated);
     AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+  };
+
+  const toggleAlarmActive = (id) => {
+    const updated = alarms.map(a => {
+      if (a.id === id) {
+        return { ...a, isActive: !a.isActive };
+      }
+      return a;
+    });
+    setAlarms(updated);
+    AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+  };
+
+  const selectAlarmOnMap = (alarm) => {
+    if (alarm.coords) setDestCoords(alarm.coords);
+    if (alarm.name) setDestName(alarm.name);
+    if (alarm.radius) setRadius(alarm.radius);
   };
 
   const triggerAlarm = () => {
@@ -492,6 +559,22 @@ function MainAppShell() {
           </View>
         );
       
+      case 'home':
+        return (
+          <HomeScreen
+            alarms={alarms}
+            currentCoords={currentCoords}
+            onNavigate={navigateTo}
+            onDeleteAlarm={deleteAlarm}
+            onToggleAlarmActive={toggleAlarmActive}
+            onUpdateAlarm={updateAlarm}
+            onSelectAlarmOnMap={selectAlarmOnMap}
+            companionType={companionType}
+            companionName={companionName || 'Rum'}
+            showMascotTips={showMascotTips}
+          />
+        );
+      
       case 'dashboard':
         return (
           <DashboardScreen
@@ -530,14 +613,15 @@ function MainAppShell() {
       case 'ringing':
         return (
           <RingingScreen
-            destName={destName}
-            radius={radius}
+            destName={triggeredAlarm ? triggeredAlarm.name : destName}
+            radius={triggeredAlarm ? triggeredAlarm.radius : radius}
             activeTone={activeTone}
             customAudioData={customAudioData}
             volume={volume}
             onDismiss={dismissAlarm}
             onSnooze={snoozeAlarm}
             companionType={companionType}
+            companionName={companionName || 'Rum'}
           />
         );
 
@@ -623,10 +707,111 @@ function MainAppShell() {
     );
   }
 
+  const isMainTabScreen = MAIN_TABS.includes(currentScreen);
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      {renderScreen()}
+      <StatusBar barStyle={theme === 'daylight' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
+      
+      {isMainTabScreen ? (
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal={true}
+          pagingEnabled={true}
+          scrollEnabled={false}
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+            { useNativeDriver: false }
+          )}
+          style={{ flex: 1 }}
+        >
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <HomeScreen
+              alarms={alarms}
+              currentCoords={currentCoords}
+              onNavigate={navigateTo}
+              onDeleteAlarm={deleteAlarm}
+              onToggleAlarmActive={toggleAlarmActive}
+              onUpdateAlarm={updateAlarm}
+              onSelectAlarmOnMap={selectAlarmOnMap}
+              companionType={companionType}
+              companionName={companionName || 'Rum'}
+              showMascotTips={showMascotTips}
+            />
+          </View>
+
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <DashboardScreen
+              currentCoords={currentCoords}
+              destCoords={destCoords}
+              destName={destName}
+              radius={radius}
+              showMascotTips={showMascotTips}
+              onArm={armAlarm}
+              onNavigate={navigateTo}
+              alarms={alarms}
+              onDeleteAlarm={deleteAlarm}
+              onUpdateAlarm={updateAlarm}
+              companionType={companionType}
+              companionName={companionName || 'Rum'}
+            />
+          </View>
+
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <SoundsScreen
+              activeTone={activeTone}
+              volume={volume}
+              customAudioName={customAudioName}
+              customAudioData={customAudioData}
+              onSaveSound={(tone, fileData, name) => {
+                setActiveTone(tone);
+                if (fileData) setCustomAudioData(fileData);
+                if (name) setCustomAudioName(name);
+                saveState({ activeTone: tone, customAudioData: fileData, customAudioName: name });
+              }}
+              onSaveVolume={(vol) => {
+                setVolume(vol);
+                saveState({ volume: vol });
+              }}
+              onNavigate={navigateTo}
+              companionName={companionName || 'Rum'}
+            />
+          </View>
+
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <SettingsScreen
+              showMascotTips={showMascotTips}
+              onSaveTips={(val) => {
+                setShowMascotTips(val);
+                saveState({ showMascotTips: val });
+              }}
+              onNavigate={navigateTo}
+              companionType={companionType}
+              companionName={companionName || 'Rum'}
+              onSaveCompanion={(val) => {
+                setCompanionType(val);
+                saveState({ companionType: val });
+              }}
+              onSaveCompanionName={(val) => {
+                setCompanionName(val);
+                saveState({ companionName: val });
+              }}
+            />
+          </View>
+        </ScrollView>
+      ) : (
+        renderScreen()
+      )}
+
+      {isMainTabScreen && (
+        <AnimatedTabBar 
+          currentTab={currentScreen} 
+          onTabPress={navigateTo}
+          scrollX={scrollX}
+        />
+      )}
     </SafeAreaView>
   );
 }

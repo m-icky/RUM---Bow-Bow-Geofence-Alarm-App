@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Switch, ScrollView, TextInput, Animated, PanResponder, Modal } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Switch, ScrollView, TextInput, Animated, PanResponder, Modal, Linking, Alert } from 'react-native';
 import { useTheme, THEMES } from '../components/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import MascotRum from '../components/MascotRum';
+import AppHeader from '../components/AppHeader';
 import * as Haptics from 'expo-haptics';
 
 const GRID_COLORS = [
@@ -41,6 +42,23 @@ export default function SettingsScreen({
 
   // Local state for companion name input (saves on blur only)
   const [localCompanionName, setLocalCompanionName] = useState(companionName);
+
+  const handleFeedPay = (amount = 10) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    } catch (e) {}
+
+    const name = encodeURIComponent(localCompanionName || 'Rum');
+    const upiUrl = `upi://pay?pa=naveentmadhu-1@okicici&pn=Rum%20Companion&cu=INR&am=${amount}&tn=Feed%20${name}%20a%20treat`;
+
+    Linking.openURL(upiUrl).catch(() => {
+      Alert.alert(
+        `Feed ${localCompanionName || 'Rum'} 🍖`,
+        `Google Pay / UPI app could not open automatically.\n\nPlease send ₹${amount} to UPI ID:\nnaveentmadhu-1@okicici`,
+        [{ text: "OK" }]
+      );
+    });
+  };
 
   const MASCOT_PHRASES = [
     "Woof! That tickles! 🐾",
@@ -152,39 +170,65 @@ export default function SettingsScreen({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
 
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Visual Settings</Text>
-      </View>
-
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Theme Presets</Text>
 
-        {/* Themes 2x2 Grid */}
-        <View style={styles.grid}>
+        {/* Horizontal Animated Theme Carousel */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingVertical: 6, paddingRight: 15 }}
+        >
           {Object.keys(THEMES).map(key => {
             const t = THEMES[key];
+            const isSelected = theme === key;
+            const isDefaultLight = key === 'daylight';
+
             return (
               <TouchableOpacity
                 key={key}
+                activeOpacity={0.8}
                 style={[
-                  styles.themeCard,
+                  styles.themeCarouselCard,
                   {
-                    backgroundColor: colors.surface,
-                    borderColor: theme === key ? colors.accent : colors.surfaceOpaque
+                    backgroundColor: colors.surfaceOpaque,
+                    borderColor: isSelected ? colors.accent : colors.surface,
+                    borderWidth: isSelected ? 2 : 1,
                   }
                 ]}
                 onPress={() => setTheme(key)}
               >
-                <View style={[styles.previewArea, { backgroundColor: t.background }]}>
-                  <View style={[styles.dot, { backgroundColor: t.dogPrimary }]} />
-                  <View style={[styles.dot, { backgroundColor: t.accent }]} />
+                <View style={styles.themeBadgeRow}>
+                  {isDefaultLight && (
+                    <View style={[styles.defaultBadge, { backgroundColor: colors.accentRgba }]}>
+                      <Text style={[styles.defaultBadgeText, { color: colors.accent }]}>DEFAULT</Text>
+                    </View>
+                  )}
+                  {isSelected && (
+                    <Ionicons name="checkmark-circle" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
+                  )}
                 </View>
-                <Text style={[styles.themeName, { color: colors.text }]}>{t.name}</Text>
+
+                {/* Color Swatch Preview Area */}
+                <View style={[styles.themePreviewArea, { backgroundColor: t.background }]}>
+                  <View style={[styles.themePreviewDot, { backgroundColor: t.dogPrimary }]} />
+                  <View style={[styles.themePreviewDot, { backgroundColor: t.accent }]} />
+                  <View style={[styles.themePreviewDot, { backgroundColor: t.textSecondary }]} />
+                </View>
+
+                {/* Theme Title */}
+                <Text style={[styles.themeCardTitle, { color: colors.text }]} numberOfLines={1}>
+                  {t.name}
+                </Text>
+                
+                <Text style={[styles.themeSubText, { color: colors.textSecondary }]}>
+                  {key === 'daylight' ? 'Light Mode' : 'Dark Mode'}
+                </Text>
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
 
         {/* Custom Colors panel */}
         <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 25 }]}>
@@ -307,6 +351,47 @@ export default function SettingsScreen({
           />
         </View>
 
+        {/* Feed Companion Section */}
+        <View style={[styles.feedCard, { backgroundColor: colors.surface, borderColor: colors.surfaceOpaque }]}>
+          <View style={styles.feedHeaderRow}>
+            <Text style={styles.feedEmoji}>🍖</Text>
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={[styles.feedTitle, { color: colors.text }]}>
+                Feed {localCompanionName || 'Rum'} a Treat! 🦴
+              </Text>
+              <Text style={[styles.feedSubtitle, { color: colors.textSecondary }]}>
+                {companionType === 'cat' ? `Buy ${localCompanionName || 'Rum'} a juicy fish snack! 🐟`
+                  : companionType === 'rabbit' ? `Buy ${localCompanionName || 'Rum'} a crunchy carrot! 🥕`
+                  : companionType === 'bird' ? `Buy ${localCompanionName || 'Rum'} a bag of seeds! 🌾`
+                  : companionType === 'fish' ? `Buy ${localCompanionName || 'Rum'} a bowl of flakes! 🫧`
+                  : `Buy ${localCompanionName || 'Rum'} a big meaty bone! 🥩`}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.feedButtonsRow}>
+            <TouchableOpacity
+              style={[styles.feedBtn, { backgroundColor: colors.accent }]}
+              onPress={() => handleFeedPay(10)}
+            >
+              <Ionicons name="card-outline" size={16} color="#120a08" style={{ marginRight: 6 }} />
+              <Text style={styles.feedBtnText}>Buy Snack (₹10)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.feedBtn, { backgroundColor: colors.surfaceOpaque, borderWidth: 1, borderColor: colors.accent }]}
+              onPress={() => handleFeedPay(50)}
+            >
+              <Ionicons name="restaurant-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+              <Text style={[styles.feedBtnText, { color: colors.accent }]}>Buy Feast (₹50)</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.upiInfoText, { color: colors.textSecondary }]}>
+            Opens Google Pay / UPI • ID: naveentmadhu-1@okicici
+          </Text>
+        </View>
+
         {/* Mascot Tips settings */}
         <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 25 }]}>
           Mascot Options
@@ -351,23 +436,41 @@ export default function SettingsScreen({
           </Animated.View>
         </View>
 
-      </ScrollView>
+        {/* GitHub Developer Profile Footer */}
+        <View style={styles.githubFooterContainer}>
+          <TouchableOpacity
+            style={[styles.githubCard, { backgroundColor: colors.surfaceOpaque, borderColor: colors.surface }]}
+            onPress={() => {
+              try {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              } catch (e) {}
+              Linking.openURL('https://github.com/m-icky').catch((err) => {
+                console.error("Failed to open GitHub profile:", err);
+              });
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={[styles.githubIconBadge, { backgroundColor: colors.surface }]}>
+                <Ionicons name="logo-github" size={24} color={colors.text} />
+              </View>
+              <View style={{ marginLeft: 12 }}>
+                <Text style={[styles.githubTitle, { color: colors.text }]}>Desig & Developed by m-icky</Text>
+                <Text style={[styles.githubSubtitle, { color: colors.textSecondary }]}>github.com/m-icky</Text>
+              </View>
+            </View>
+            <View style={[styles.githubOpenBadge, { backgroundColor: colors.accentRgba || 'rgba(37, 99, 235, 0.15)' }]}>
+              <Text style={[styles.githubOpenText, { color: colors.accent }]}>Visit Profile</Text>
+              <Ionicons name="open-outline" size={14} color={colors.accent} style={{ marginLeft: 4 }} />
+            </View>
+          </TouchableOpacity>
+          
+          <Text style={[styles.appVersionText, { color: colors.textSecondary }]}>
+            Rum Geofence Alarm • v1.0.0
+          </Text>
+        </View>
 
-      {/* Tabs navigation */}
-      <View style={[styles.nav, { backgroundColor: colors.surfaceOpaque, borderTopColor: colors.surface }]}>
-        <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('dashboard')}>
-          <Ionicons name="map" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Map</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('sounds')}>
-          <Ionicons name="musical-notes" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Sounds</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="settings" size={20} color={colors.accent} />
-          <Text style={[styles.navText, { color: colors.accent }]}>Settings</Text>
-        </TouchableOpacity>
-      </View>
+      </ScrollView>
 
       {/* Color Picker Modal */}
       <Modal
@@ -436,7 +539,8 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 25,
-    paddingVertical: 20,
+    paddingTop: 20,
+    paddingBottom: 90,
   },
   sectionTitle: {
     fontSize: 11,
@@ -445,37 +549,60 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 12,
   },
-  grid: {
+  themeCarouselCard: {
+    width: 140,
+    borderRadius: 16,
+    padding: 12,
+    marginRight: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  themeBadgeRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  themeCard: {
-    flex: 0.485,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 10,
     alignItems: 'center',
+    height: 22,
+    marginBottom: 8,
   },
-  previewArea: {
+  defaultBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  defaultBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  themePreviewArea: {
+    height: 52,
     width: '100%',
-    height: 46,
-    borderRadius: 8,
+    borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    marginBottom: 8,
+    gap: 8,
+    marginBottom: 10,
   },
-  dot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+  themePreviewDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
-  themeName: {
-    fontSize: 11,
+  themeCardTitle: {
+    fontSize: 13,
     fontWeight: '700',
+  },
+  themeSubText: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 2,
   },
   customColorsCard: {
     borderRadius: 14,
@@ -657,5 +784,106 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     width: 110,
     textAlign: 'center',
+  },
+  feedCard: {
+    marginTop: 12,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+  },
+  feedHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  feedEmoji: {
+    fontSize: 28,
+  },
+  feedTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  feedSubtitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  feedButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  feedBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  feedBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#120a08',
+  },
+  upiInfoText: {
+    fontSize: 10,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 10,
+    opacity: 0.7,
+  },
+  githubFooterContainer: {
+    marginTop: 25,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  githubCard: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  githubIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  githubTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  githubSubtitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  githubOpenBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  githubOpenText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  appVersionText: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 12,
+    opacity: 0.6,
   },
 });

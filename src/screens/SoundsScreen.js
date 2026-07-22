@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
-import { Audio } from 'expo-av';
+import { createAudioPlayer } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useTheme } from '../components/ThemeContext';
+import AppHeader from '../components/AppHeader';
 
 const TONES_MAP = {
   bark: require('../../assets/sounds/bark.wav'),
@@ -41,7 +42,9 @@ export default function SoundsScreen({
     return () => {
       // Unload sound on screen unmount
       if (previewSound) {
-        previewSound.unloadAsync();
+        try {
+          previewSound.remove();
+        } catch (e) {}
       }
     };
   }, [previewSound]);
@@ -55,19 +58,19 @@ export default function SoundsScreen({
   const playPreview = async (toneId, customUri) => {
     try {
       if (previewSound) {
-        await previewSound.stopAsync();
-        await previewSound.unloadAsync();
+        try {
+          previewSound.remove();
+        } catch (e) {}
       }
       
       const source = toneId === 'custom' && customUri
         ? { uri: customUri }
         : (TONES_MAP[toneId] || TONES_MAP.bark);
 
-      const { sound } = await Audio.Sound.createAsync(
-        source,
-        { shouldPlay: true, volume: localVolume }
-      );
-      setPreviewSound(sound);
+      const player = createAudioPlayer(source);
+      player.volume = localVolume;
+      player.play();
+      setPreviewSound(player);
     } catch (e) {
       console.error('Failed to play preview tone:', e);
     }
@@ -103,10 +106,6 @@ export default function SoundsScreen({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Alarm Sounds</Text>
-      </View>
-
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         
         <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Select Alarm Tone</Text>
@@ -207,23 +206,6 @@ export default function SoundsScreen({
         </TouchableOpacity>
 
       </ScrollView>
-
-      {/* Tabs navigation */}
-      <View style={[styles.nav, { backgroundColor: colors.surfaceOpaque, borderTopColor: colors.surface }]}>
-        <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('dashboard')}>
-          <Ionicons name="map" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Map</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="musical-notes" size={20} color={colors.accent} />
-          <Text style={[styles.navText, { color: colors.accent }]}>Sounds</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('settings')}>
-          <Ionicons name="settings" size={20} color={colors.textSecondary} />
-          <Text style={[styles.navText, { color: colors.textSecondary }]}>Settings</Text>
-        </TouchableOpacity>
-      </View>
-
     </View>
   );
 }
@@ -244,7 +226,8 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 25,
-    paddingVertical: 20,
+    paddingTop: 20,
+    paddingBottom: 90,
   },
   sectionTitle: {
     fontSize: 11,
