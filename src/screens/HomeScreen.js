@@ -14,9 +14,18 @@ import {
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
+import { createAudioPlayer } from 'expo-audio';
+import { getDistance as geolibGetDistance } from 'geolib';
 import { useTheme } from '../components/ThemeContext';
 import MascotRum from '../components/MascotRum';
 import AppHeader from '../components/AppHeader';
+
+const TONES_MAP = {
+  bark: require('../../assets/sounds/bark.wav'),
+  radar: require('../../assets/sounds/radar.wav'),
+  chimes: require('../../assets/sounds/chimes.wav'),
+  breeze: require('../../assets/sounds/breeze.wav'),
+};
 
 export default function HomeScreen({
   alarms = [],
@@ -24,6 +33,7 @@ export default function HomeScreen({
   onNavigate,
   onDeleteAlarm,
   onToggleAlarmActive,
+  onToggleFavoriteAlarm,
   onUpdateAlarm,
   onSelectAlarmOnMap,
   companionType = 'dog',
@@ -46,6 +56,24 @@ export default function HomeScreen({
   const [editingAlarm, setEditingAlarm] = useState(null);
   const [editName, setEditName] = useState('');
   const [editRadius, setEditRadius] = useState(1500);
+  const [editSound, setEditSound] = useState('bark');
+  const previewPlayerRef = useRef(null);
+
+  const playSoundPreview = (toneId) => {
+    try {
+      if (previewPlayerRef.current) {
+        try { previewPlayerRef.current.remove(); } catch (e) {}
+        previewPlayerRef.current = null;
+      }
+      const source = TONES_MAP[toneId] || TONES_MAP.bark;
+      const player = createAudioPlayer(source);
+      player.volume = 0.8;
+      player.play();
+      previewPlayerRef.current = player;
+    } catch (e) {
+      console.warn("Could not play sound preview:", e);
+    }
+  };
 
   useEffect(() => {
     // Smooth page entrance
@@ -79,19 +107,13 @@ export default function HomeScreen({
     ).start();
   }, []);
 
-  // Haversine distance calculator in meters
+  // Distance calculator using geolib
   const getDistance = (c1, c2) => {
     if (!c1 || !c2) return 0;
-    const R = 6371e3; // meters
-    const lat1 = c1.latitude * Math.PI / 180;
-    const lat2 = c2.latitude * Math.PI / 180;
-    const dLat = (c2.latitude - c1.latitude) * Math.PI / 180;
-    const dLng = (c2.longitude - c1.longitude) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1) * Math.cos(lat2) *
-              Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+    return geolibGetDistance(
+      { latitude: c1.latitude, longitude: c1.longitude },
+      { latitude: c2.latitude, longitude: c2.longitude }
+    );
   };
 
   const formatDistance = (m) => {
@@ -118,7 +140,7 @@ export default function HomeScreen({
 
   const handleViewOnMap = (alarm) => {
     if (onSelectAlarmOnMap) {
-      onSelectAlarmOnMap(alarm);
+      onSelectAlarmOnMap(alarm, true);
     }
     onNavigate('dashboard');
   };
@@ -127,11 +149,15 @@ export default function HomeScreen({
     setEditingAlarm(alarm);
     setEditName(alarm.name);
     setEditRadius(alarm.radius || 1500);
+    setEditSound(alarm.sound || 'bark');
   };
 
   const saveEdit = () => {
+    if (previewPlayerRef.current) {
+      try { previewPlayerRef.current.remove(); } catch (e) {}
+    }
     if (editingAlarm && onUpdateAlarm) {
-      onUpdateAlarm(editingAlarm.id, editName, editingAlarm.coords, editRadius);
+      onUpdateAlarm(editingAlarm.id, editName, editingAlarm.coords, editRadius, editSound);
     }
     setEditingAlarm(null);
   };
@@ -219,7 +245,10 @@ export default function HomeScreen({
 
             <TouchableOpacity 
               style={[styles.addBtn, { backgroundColor: colors.accent }]}
-              onPress={() => onNavigate('dashboard')}
+              onPress={() => {
+                if (onSelectAlarmOnMap) onSelectAlarmOnMap(null, false);
+                onNavigate('dashboard');
+              }}
             >
               <Ionicons name="add" size={18} color="#fff" style={{ marginRight: 4 }} />
               <Text style={styles.addBtnText}>Add Alarm</Text>
@@ -236,14 +265,17 @@ export default function HomeScreen({
               </Text>
               <TouchableOpacity 
                 style={[styles.emptyBtn, { backgroundColor: colors.accent }]}
-                onPress={() => onNavigate('dashboard')}
+                onPress={() => {
+                  if (onSelectAlarmOnMap) onSelectAlarmOnMap(null, false);
+                  onNavigate('dashboard');
+                }}
               >
                 <Ionicons name="map-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
                 <Text style={styles.emptyBtnText}>Open Map & Pick Destination</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            alarms.map((alarm) => {
+            [...alarms].sort((a, b) => (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0)).map((alarm) => {
               const distanceMeters = currentCoords ? getDistance(currentCoords, alarm.coords) : 0;
               const isWithinPerimeter = distanceMeters <= alarm.radius;
 
@@ -254,25 +286,35 @@ export default function HomeScreen({
                     styles.alarmCard, 
                     { 
                       backgroundColor: colors.surfaceOpaque,
-                      borderColor: alarm.isActive ? colors.accentRgba : 'transparent',
-                      borderWidth: alarm.isActive ? 1 : 0
+                      borderColor: alarm.isFavorite ? '#ff4757' : (alarm.isActive ? colors.accentRgba : 'transparent'),
+                      borderWidth: alarm.isFavorite || alarm.isActive ? 1 : 0
                     }
                   ]}
                 >
                   <View style={styles.alarmCardHeader}>
                     <View style={{ flex: 1, paddingRight: 10 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <TouchableOpacity
+                          onPress={() => onToggleFavoriteAlarm && onToggleFavoriteAlarm(alarm.id)}
+                          style={{ paddingRight: 6 }}
+                        >
+                          <Ionicons 
+                            name={alarm.isFavorite ? "heart" : "heart-outline"} 
+                            size={18} 
+                            color={alarm.isFavorite ? "#ff4757" : colors.textSecondary} 
+                          />
+                        </TouchableOpacity>
                         <Ionicons 
                           name={alarm.isActive ? "location-sharp" : "location-outline"} 
-                          size={20} 
+                          size={18} 
                           color={alarm.isActive ? colors.accent : colors.textSecondary} 
-                          style={{ marginRight: 8 }} 
+                          style={{ marginRight: 6 }} 
                         />
-                        <Text style={[styles.alarmName, { color: colors.text }]} numberOfLines={1}>
+                        <Text style={[styles.alarmName, { color: colors.text, flex: 1 }]} numberOfLines={1}>
                           {alarm.name}
                         </Text>
                       </View>
-                      <Text style={[styles.alarmCoords, { color: colors.textSecondary }]}>
+                      <Text style={[styles.alarmCoords, { color: colors.textSecondary, marginLeft: 24 }]}>
                         {alarm.coords ? `${alarm.coords.latitude.toFixed(4)}, ${alarm.coords.longitude.toFixed(4)}` : ''}
                       </Text>
                     </View>
@@ -316,13 +358,10 @@ export default function HomeScreen({
                     </View>
 
                     <View style={styles.detailItem}>
-                      <Ionicons name="navigate-outline" size={14} color="#3498db" style={{ marginRight: 5 }} />
-                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Distance: </Text>
-                      <Text style={[
-                        styles.detailValue, 
-                        { color: isWithinPerimeter ? '#2ecc71' : colors.text }
-                      ]}>
-                        {isWithinPerimeter ? 'Inside Boundary!' : formatDistance(distanceMeters)}
+                      <Ionicons name="musical-notes-outline" size={14} color="#9b59b6" style={{ marginRight: 5 }} />
+                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Sound: </Text>
+                      <Text style={[styles.detailValue, { color: colors.text }]}>
+                        {alarm.sound === 'radar' ? 'Digital Radar' : alarm.sound === 'chimes' ? 'Melodic Chimes' : alarm.sound === 'breeze' ? 'Siren Pulse' : `${companionName}'s Bark`}
                       </Text>
                     </View>
                   </View>
@@ -421,6 +460,46 @@ export default function HomeScreen({
               thumbTintColor={colors.accent}
               style={{ width: '100%', height: 40, marginTop: 5 }}
             />
+
+            <Text style={[styles.modalLabel, { color: colors.textSecondary, marginTop: 14 }]}>
+              Alarm Alert Sound:
+            </Text>
+            <View style={styles.soundOptionsRow}>
+              {[
+                { id: 'bark', name: `${companionName}'s Bark`, icon: 'paw' },
+                { id: 'radar', name: 'Digital Radar', icon: 'radio' },
+                { id: 'chimes', name: 'Melodic Chimes', icon: 'notifications' },
+                { id: 'breeze', name: 'Siren Pulse', icon: 'warning' },
+              ].map((snd) => {
+                const isSelected = editSound === snd.id;
+                return (
+                  <TouchableOpacity
+                    key={snd.id}
+                    style={[
+                      styles.soundOptionChip,
+                      {
+                        backgroundColor: isSelected ? colors.accent : colors.surface,
+                        borderColor: isSelected ? colors.accent : 'rgba(255,255,255,0.08)',
+                      }
+                    ]}
+                    onPress={() => {
+                      setEditSound(snd.id);
+                      playSoundPreview(snd.id);
+                    }}
+                  >
+                    <Ionicons 
+                      name={snd.icon} 
+                      size={14} 
+                      color={isSelected ? '#fff' : colors.textSecondary} 
+                      style={{ marginRight: 5 }} 
+                    />
+                    <Text style={[styles.soundOptionText, { color: isSelected ? '#fff' : colors.text }]}>
+                      {snd.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
             <TouchableOpacity 
               style={[styles.modalPickMapBtn, { borderColor: colors.accent }]}
@@ -776,6 +855,25 @@ const styles = StyleSheet.create({
   navText: {
     fontSize: 10,
     marginTop: 2,
+    fontWeight: '600',
+  },
+  soundOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  soundOptionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  soundOptionText: {
+    fontSize: 12,
     fontWeight: '600',
   },
 });

@@ -13,7 +13,6 @@ import { useTheme } from './ThemeContext';
 
 const TABS = [
   { id: 'home', label: 'Home', activeIcon: 'home', inactiveIcon: 'home-outline' },
-  { id: 'dashboard', label: 'Map', activeIcon: 'map', inactiveIcon: 'map-outline' },
   { id: 'sounds', label: 'Sounds', activeIcon: 'musical-notes', inactiveIcon: 'musical-notes-outline' },
   { id: 'settings', label: 'Settings', activeIcon: 'settings', inactiveIcon: 'settings-outline' },
 ];
@@ -28,12 +27,12 @@ export default function AnimatedTabBar({ currentTab, onTabPress, scrollX }) {
   const tabWidth = screenWidth / TABS.length;
 
   // Fallback animation value if scrollX is not passed
-  const fallbackAnim = useRef(new Animated.Value(activeIndex)).current;
+  const fallbackAnim = useRef(new Animated.Value(activeIndex >= 0 ? activeIndex : 0)).current;
 
   useEffect(() => {
     if (!scrollX) {
       Animated.spring(fallbackAnim, {
-        toValue: activeIndex,
+        toValue: activeIndex >= 0 ? activeIndex : 0,
         useNativeDriver: false,
         friction: 8,
         tension: 70,
@@ -44,13 +43,13 @@ export default function AnimatedTabBar({ currentTab, onTabPress, scrollX }) {
   // Interpolate position from real-time scrollX or fallbackAnim
   const translateX = scrollX
     ? scrollX.interpolate({
-        inputRange: [0, screenWidth, screenWidth * 2, screenWidth * 3],
-        outputRange: [0, tabWidth, tabWidth * 2, tabWidth * 3],
+        inputRange: [0, screenWidth, screenWidth * 2],
+        outputRange: [0, tabWidth, tabWidth * 2],
         extrapolate: 'clamp',
       })
     : fallbackAnim.interpolate({
-        inputRange: [0, 1, 2, 3],
-        outputRange: [0, tabWidth, tabWidth * 2, tabWidth * 3],
+        inputRange: [0, 1, 2],
+        outputRange: [0, tabWidth, tabWidth * 2],
       });
 
   return (

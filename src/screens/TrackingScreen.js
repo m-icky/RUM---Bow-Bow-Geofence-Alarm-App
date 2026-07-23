@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { getDistance as geolibGetDistance } from 'geolib';
 import { useTheme } from '../components/ThemeContext';
 import MascotRum from '../components/MascotRum';
 
@@ -33,20 +34,13 @@ export default function TrackingScreen({
   const totalSteps = 150;
   const stepIndex = useRef(0);
 
-  // Haversine formula to compute distance in meters
+  // Distance calculator using geolib
   const getDistance = (c1, c2) => {
-    const R = 6371e3; // meters
-    const lat1 = c1.latitude * Math.PI / 180;
-    const lat2 = c2.latitude * Math.PI / 180;
-    const dLat = (c2.latitude - c1.latitude) * Math.PI / 180;
-    const dLng = (c2.longitude - c1.longitude) * Math.PI / 180;
-
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1) * Math.cos(lat2) *
-              Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
+    if (!c1 || !c2) return 0;
+    return geolibGetDistance(
+      { latitude: c1.latitude, longitude: c1.longitude },
+      { latitude: c2.latitude, longitude: c2.longitude }
+    );
   };
 
   useEffect(() => {

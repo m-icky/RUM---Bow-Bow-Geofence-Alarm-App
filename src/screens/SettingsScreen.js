@@ -455,7 +455,8 @@ export default function SettingsScreen({
                 <Ionicons name="logo-github" size={24} color={colors.text} />
               </View>
               <View style={{ marginLeft: 12 }}>
-                <Text style={[styles.githubTitle, { color: colors.text }]}>Designed & Developed by m-icky</Text>
+                <Text style={[styles.githubTitle, { color: colors.text }]}>Designed & Developed by</Text>
+                <Text style={[styles.githubTitle, { color: colors.text }]}>m-icky</Text>
                 <Text style={[styles.githubSubtitle, { color: colors.textSecondary }]}>github.com/m-icky</Text>
               </View>
             </View>
@@ -465,9 +466,24 @@ export default function SettingsScreen({
             </View>
           </TouchableOpacity>
           
-          <Text style={[styles.appVersionText, { color: colors.textSecondary }]}>
-            Rum Geofence Alarm • v1.0.0
-          </Text>
+          {/* Copyright & Required Legal Details */}
+          <View style={styles.footerDetailsBox}>
+            <Text style={[styles.appVersionText, { color: colors.textSecondary }]}>
+              Rum Geofence Alarm • v1.0.0 (Build 100)
+            </Text>
+
+            <Text style={[styles.copyrightText, { color: colors.text }]}>
+              © 2026 m-icky. All Rights Reserved.
+            </Text>
+
+            <Text style={[styles.legalText, { color: colors.textSecondary }]}>
+              MIT License • Offline-First & Privacy Guaranteed
+            </Text>
+
+            <Text style={[styles.taglineText, { color: colors.accent }]}>
+              Made with ❤️ for stress-free journeys! 🐾
+            </Text>
+          </View>
         </View>
 
       </ScrollView>
@@ -880,10 +896,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  footerDetailsBox: {
+    alignItems: 'center',
+    marginTop: 14,
+    paddingHorizontal: 10,
+  },
   appVersionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  copyrightText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+    opacity: 0.9,
+  },
+  legalText: {
     fontSize: 11,
     fontWeight: '500',
-    marginTop: 12,
-    opacity: 0.6,
+    marginTop: 4,
+    opacity: 0.65,
+  },
+  taglineText: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 10,
   },
 });

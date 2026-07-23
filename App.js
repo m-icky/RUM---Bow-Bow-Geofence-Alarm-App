@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, StatusBar, Text, ScrollView, TouchableOpacity, Platform, Animated, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getDistance } from 'geolib';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { ThemeProvider, useTheme } from './src/components/ThemeContext';
@@ -226,6 +227,7 @@ function MainAppShell() {
   // Multiple alarms states
   const [alarms, setAlarms] = useState([]);
   const [triggeredAlarm, setTriggeredAlarm] = useState(null);
+  const [editingAlarmId, setEditingAlarmId] = useState(null);
   const triggeredAlarmRef = useRef(null);
   const notifiedApproachingRef = useRef({});
 
@@ -297,7 +299,7 @@ function MainAppShell() {
     }
   }, [currentScreen]);
 
-  const MAIN_TABS = ['home', 'dashboard', 'sounds', 'settings'];
+  const MAIN_TABS = ['home', 'sounds', 'settings'];
   const scrollViewRef = useRef(null);
   const scrollX = useRef(new Animated.Value(0)).current;
   const screenWidth = Dimensions.get('window').width;
@@ -322,19 +324,16 @@ function MainAppShell() {
     }
   };
 
-  // Haversine distance calculator
-  const getDistance = (c1, c2) => {
-    const R = 6371e3; // meters
-    const lat1 = c1.latitude * Math.PI / 180;
-    const lat2 = c2.latitude * Math.PI / 180;
-    const dLat = (c2.latitude - c1.latitude) * Math.PI / 180;
-    const dLng = (c2.longitude - c1.longitude) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1) * Math.cos(lat2) *
-              Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+  // Haversine distance helper wrapper using geolib
+  const calcDistance = (c1, c2) => {
+    if (!c1 || !c2) return 0;
+    return getDistance(
+      { latitude: c1.latitude, longitude: c1.longitude },
+      { latitude: c2.latitude, longitude: c2.longitude }
+    );
   };
+
+  const isArmed = alarms.some(a => a.isActive);
 
   // Real-time location tracking & geofence trigger checker
   useEffect(() => {
@@ -348,10 +347,15 @@ function MainAppShell() {
         watchSubscription = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.BestForNavigation,
-            timeInterval: 2000,
-            distanceInterval: 5
+            timeInterval: 1000,
+            distanceInterval: 2
           },
           (location) => {
+            // Ignore bad GPS readings (worse than 20m accuracy)
+            if (location.coords.accuracy !== undefined && location.coords.accuracy !== null && location.coords.accuracy > 20) {
+              return;
+            }
+
             const coords = {
               latitude: location.coords.latitude,
               longitude: location.coords.longitude
@@ -362,7 +366,12 @@ function MainAppShell() {
             if (alarms && alarms.length > 0) {
               for (const alarm of alarms) {
                 if (alarm.isActive) {
-                  const dist = getDistance(coords, alarm.coords);
+                  // Skip checking if alarm is currently snoozed
+                  if (alarm.snoozedUntil && Date.now() < alarm.snoozedUntil) {
+                    continue;
+                  }
+
+                  const dist = calcDistance(coords, alarm.coords);
                   
                   // Check 2km before perimeter warning
                   if (dist <= alarm.radius + 2000 && !notifiedApproachingRef.current[alarm.id]) {
@@ -398,19 +407,34 @@ function MainAppShell() {
   }, [alarms]);
 
   // CRUD Operations for Alarms List
-  const armAlarm = async (dest, coords, r) => {
+  const armAlarm = async (dest, coords, r, sound) => {
     const newAlarm = {
       id: String(Date.now()),
       name: dest,
       coords: coords,
       radius: r,
+      sound: sound || activeTone || 'bark',
       isActive: true
     };
     const updated = [...alarms, newAlarm];
     setAlarms(updated);
     await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
     // Start background task whenever an alarm is armed
-    await startBackgroundGeofenceTask();
+    await startBackgroundGeofenceTask().catch(() => {});
+  };
+
+  const disarmAlarm = async () => {
+    const updated = alarms.map(a => ({ ...a, isActive: false, snoozedUntil: null }));
+    setAlarms(updated);
+    await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    try {
+      await AsyncStorage.removeItem('rum_bg_notified');
+    } catch (e) {}
+    notifiedApproachingRef.current = {};
+    triggeredAlarmRef.current = null;
+    setTriggeredAlarm(null);
+    await stopBackgroundGeofenceTask().catch(() => {});
+    navigateTo('dashboard');
   };
 
   const deleteAlarm = async (id) => {
@@ -436,10 +460,17 @@ function MainAppShell() {
     }
   };
 
-  const updateAlarm = (id, name, coords, r) => {
+  const updateAlarm = (id, name, coords, r, sound) => {
     const updated = alarms.map(a => {
       if (a.id === id) {
-        return { ...a, name, coords, radius: r, isActive: true };
+        return { 
+          ...a, 
+          name, 
+          coords, 
+          radius: r, 
+          sound: sound || a.sound || activeTone || 'bark', 
+          isActive: true 
+        };
       }
       return a;
     });
@@ -447,21 +478,49 @@ function MainAppShell() {
     AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
   };
 
-  const toggleAlarmActive = (id) => {
+  const toggleAlarmActive = async (id) => {
     const updated = alarms.map(a => {
       if (a.id === id) {
-        return { ...a, isActive: !a.isActive };
+        const nextActive = !a.isActive;
+        return { 
+          ...a, 
+          isActive: nextActive, 
+          snoozedUntil: nextActive ? a.snoozedUntil : null 
+        };
       }
       return a;
     });
     setAlarms(updated);
-    AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+    await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+
+    const anyActive = updated.some(a => a.isActive);
+    if (anyActive) {
+      await startBackgroundGeofenceTask().catch(() => {});
+    } else {
+      await stopBackgroundGeofenceTask().catch(() => {});
+    }
   };
 
-  const selectAlarmOnMap = (alarm) => {
-    if (alarm.coords) setDestCoords(alarm.coords);
-    if (alarm.name) setDestName(alarm.name);
-    if (alarm.radius) setRadius(alarm.radius);
+  const toggleAlarmFavorite = async (id) => {
+    const updated = alarms.map(a => {
+      if (a.id === id) {
+        return { ...a, isFavorite: !a.isFavorite };
+      }
+      return a;
+    });
+    setAlarms(updated);
+    await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+  };
+
+  const selectAlarmOnMap = (alarm, isEditing = true) => {
+    if (alarm) {
+      if (alarm.coords) setDestCoords(alarm.coords);
+      if (alarm.name) setDestName(alarm.name);
+      if (alarm.radius) setRadius(alarm.radius);
+      setEditingAlarmId(isEditing ? alarm.id : null);
+    } else {
+      setEditingAlarmId(null);
+    }
   };
 
   const triggerAlarm = () => {
@@ -494,43 +553,80 @@ function MainAppShell() {
     }
   };
 
-  const dismissAlarm = () => {
+  const dismissAlarm = async () => {
+    let updated = alarms;
     if (triggeredAlarm) {
       // Toggle triggered alarm to inactive so it does not loop trigger
-      const updated = alarms.map(a => {
+      updated = alarms.map(a => {
         if (a.id === triggeredAlarm.id) {
-          return { ...a, isActive: false };
+          return { ...a, isActive: false, snoozedUntil: null };
         }
         return a;
       });
+      // If none matched (e.g. single/mock alarm), set all alarms inactive
+      if (!alarms.some(a => a.id === triggeredAlarm.id)) {
+        updated = alarms.map(a => ({ ...a, isActive: false, snoozedUntil: null }));
+      }
       setAlarms(updated);
-      AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
-    }
-    if (triggeredAlarm) {
+      await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+
       if (notifiedApproachingRef.current) {
         delete notifiedApproachingRef.current[triggeredAlarm.id];
       }
+
+      try {
+        const raw = await AsyncStorage.getItem('rum_bg_notified') || '{}';
+        const notified = JSON.parse(raw);
+        delete notified[`approach_${triggeredAlarm.id}`];
+        delete notified[`triggered_${triggeredAlarm.id}`];
+        await AsyncStorage.setItem('rum_bg_notified', JSON.stringify(notified));
+      } catch (e) {}
+    } else {
+      updated = alarms.map(a => ({ ...a, isActive: false, snoozedUntil: null }));
+      setAlarms(updated);
+      await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
     }
+
+    triggeredAlarmRef.current = null;
     setTriggeredAlarm(null);
+
+    // Stop background task if no active alarms remain
+    const remaining = updated.filter(a => a.isActive);
+    if (remaining.length === 0) {
+      await stopBackgroundGeofenceTask();
+    }
+
     navigateTo('dashboard');
   };
 
-  const snoozeAlarm = (newRadius) => {
+  const snoozeAlarm = async (newRadius) => {
+    const snoozeDurationMs = 5 * 60 * 1000; // 5 minutes snooze
+    const snoozedUntil = Date.now() + snoozeDurationMs;
+
     if (triggeredAlarm) {
       const updated = alarms.map(a => {
         if (a.id === triggeredAlarm.id) {
-          return { ...a, radius: newRadius };
+          return { ...a, radius: newRadius, snoozedUntil: snoozedUntil, isActive: true };
         }
         return a;
       });
       setAlarms(updated);
-      AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
-    }
-    if (triggeredAlarm) {
+      await AsyncStorage.setItem('rum_active_alarms', JSON.stringify(updated));
+
       if (notifiedApproachingRef.current) {
         delete notifiedApproachingRef.current[triggeredAlarm.id];
       }
+
+      try {
+        const raw = await AsyncStorage.getItem('rum_bg_notified') || '{}';
+        const notified = JSON.parse(raw);
+        delete notified[`approach_${triggeredAlarm.id}`];
+        delete notified[`triggered_${triggeredAlarm.id}`];
+        await AsyncStorage.setItem('rum_bg_notified', JSON.stringify(notified));
+      } catch (e) {}
     }
+
+    triggeredAlarmRef.current = null;
     setTriggeredAlarm(null);
     navigateTo('dashboard');
   };
@@ -567,6 +663,7 @@ function MainAppShell() {
             onNavigate={navigateTo}
             onDeleteAlarm={deleteAlarm}
             onToggleAlarmActive={toggleAlarmActive}
+            onToggleFavoriteAlarm={toggleAlarmFavorite}
             onUpdateAlarm={updateAlarm}
             onSelectAlarmOnMap={selectAlarmOnMap}
             companionType={companionType}
@@ -588,6 +685,8 @@ function MainAppShell() {
             alarms={alarms}
             onDeleteAlarm={deleteAlarm}
             onUpdateAlarm={updateAlarm}
+            editingAlarmId={editingAlarmId}
+            onClearEditingAlarmId={() => setEditingAlarmId(null)}
             companionType={companionType}
             companionName={companionName || 'Rum'}
           />
@@ -734,28 +833,12 @@ function MainAppShell() {
               onNavigate={navigateTo}
               onDeleteAlarm={deleteAlarm}
               onToggleAlarmActive={toggleAlarmActive}
+              onToggleFavoriteAlarm={toggleAlarmFavorite}
               onUpdateAlarm={updateAlarm}
               onSelectAlarmOnMap={selectAlarmOnMap}
               companionType={companionType}
               companionName={companionName || 'Rum'}
               showMascotTips={showMascotTips}
-            />
-          </View>
-
-          <View style={{ width: screenWidth, flex: 1 }}>
-            <DashboardScreen
-              currentCoords={currentCoords}
-              destCoords={destCoords}
-              destName={destName}
-              radius={radius}
-              showMascotTips={showMascotTips}
-              onArm={armAlarm}
-              onNavigate={navigateTo}
-              alarms={alarms}
-              onDeleteAlarm={deleteAlarm}
-              onUpdateAlarm={updateAlarm}
-              companionType={companionType}
-              companionName={companionName || 'Rum'}
             />
           </View>
 
@@ -805,7 +888,7 @@ function MainAppShell() {
         renderScreen()
       )}
 
-      {isMainTabScreen && (
+      {(isMainTabScreen || currentScreen === 'dashboard') && (
         <AnimatedTabBar 
           currentTab={currentScreen} 
           onTabPress={navigateTo}

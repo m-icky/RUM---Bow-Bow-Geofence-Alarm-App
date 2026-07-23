@@ -39,6 +39,17 @@ export default function RingingScreen({
   const pulseScale2 = useSharedValue(0.7);
   const pulseAlpha2 = useSharedValue(0.6);
 
+  const stopAudioAndVibration = () => {
+    Vibration.cancel();
+    if (soundRef.current) {
+      try {
+        soundRef.current.pause();
+        soundRef.current.remove();
+        soundRef.current = null;
+      } catch (e) {}
+    }
+  };
+
   useEffect(() => {
     // Pulse animation config
     pulseScale1.value = withRepeat(
@@ -88,20 +99,17 @@ export default function RingingScreen({
 
     return () => {
       // Cleanup audio and vibrations
-      Vibration.cancel();
-      if (soundRef.current) {
-        try {
-          soundRef.current.remove();
-        } catch (e) {}
-      }
+      stopAudioAndVibration();
     };
   }, [activeTone, customAudioData, volume]);
 
   const handleDismiss = () => {
+    stopAudioAndVibration();
     onDismiss();
   };
 
   const handleSnooze = () => {
+    stopAudioAndVibration();
     // Snooze silences the alarm and increases geofence size by 20%
     const expandedRadius = Math.round(radius * 1.2);
     onSnooze(expandedRadius);

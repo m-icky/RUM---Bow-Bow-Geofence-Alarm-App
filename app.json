@@ -48,7 +48,8 @@
       [
         "expo-location",
         {
-          "locationAlwaysPermission": "Allow Rum to track location in the background for commuter alarms."
+          "locationAlwaysAndWhenInUsePermission": "Allow Rum to track location in the background for commuter alarms.",
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       "expo-task-manager",

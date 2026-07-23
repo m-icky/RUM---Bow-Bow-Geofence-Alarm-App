@@ -11,21 +11,17 @@ import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getDistance as geolibGetDistance } from 'geolib';
 
 export const BACKGROUND_GEOFENCE_TASK = 'BACKGROUND_GEOFENCE_TASK';
 
-// Haversine distance (returns meters)
+// Distance calculator using geolib (returns meters)
 function getDistance(c1, c2) {
-  const R = 6371e3;
-  const lat1 = c1.latitude * Math.PI / 180;
-  const lat2 = c2.latitude * Math.PI / 180;
-  const dLat = (c2.latitude - c1.latitude) * Math.PI / 180;
-  const dLng = (c2.longitude - c1.longitude) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  if (!c1 || !c2) return 0;
+  return geolibGetDistance(
+    { latitude: c1.latitude, longitude: c1.longitude },
+    { latitude: c2.latitude, longitude: c2.longitude }
+  );
 }
 
 // Register the background task at module load time (MUST be at top level)
@@ -41,6 +37,12 @@ TaskManager.defineTask(BACKGROUND_GEOFENCE_TASK, async ({ data, error }) => {
   if (!locations || locations.length === 0) return;
 
   const location = locations[locations.length - 1];
+
+  // Ignore bad GPS readings (accuracy worse than 20m)
+  if (location.coords.accuracy !== undefined && location.coords.accuracy !== null && location.coords.accuracy > 20) {
+    return;
+  }
+
   const coords = {
     latitude: location.coords.latitude,
     longitude: location.coords.longitude,
@@ -77,6 +79,8 @@ TaskManager.defineTask(BACKGROUND_GEOFENCE_TASK, async ({ data, error }) => {
 
     for (const alarm of alarms) {
       if (!alarm.isActive) continue;
+      // Skip checking if alarm is currently snoozed
+      if (alarm.snoozedUntil && Date.now() < alarm.snoozedUntil) continue;
 
       const dist = getDistance(coords, alarm.coords);
 
@@ -134,6 +138,12 @@ TaskManager.defineTask(BACKGROUND_GEOFENCE_TASK, async ({ data, error }) => {
  */
 export async function startBackgroundGeofenceTask() {
   try {
+    const isAvailable = await Location.isBackgroundLocationAvailableAsync().catch(() => false);
+    if (!isAvailable) {
+      console.log('[BGTask] Background location service not available on this device platform');
+      return false;
+    }
+
     const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
     if (fgStatus !== 'granted') {
       console.log('[BGTask] Foreground location permission not granted');
@@ -143,7 +153,6 @@ export async function startBackgroundGeofenceTask() {
     const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
     if (bgStatus !== 'granted') {
       console.log('[BGTask] Background location permission not granted. On Android 10+, user must enable "Allow all the time" manually.');
-      // Still try to start - will work in foreground/background mode
     }
 
     const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_GEOFENCE_TASK);
@@ -165,7 +174,7 @@ export async function startBackgroundGeofenceTask() {
     }
     return true;
   } catch (e) {
-    console.error('[BGTask] Failed to start:', e);
+    console.warn('[BGTask] Background location start warning (foreground tracking remains active):', e ? e.message || String(e) : 'Permission/Foreground service unavailable');
     return false;
   }
 }
