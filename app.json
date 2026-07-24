@@ -41,7 +41,11 @@
         "FOREGROUND_SERVICE_LOCATION",
         "WAKE_LOCK",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "plugins": [
@@ -58,8 +62,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "d12f6004-e9ef-4df9-a626-daccd9e52b98"
+        "projectId": "37e56405-7f5f-4df4-9525-a478fe0abb13"
       }
-    }
+    },
+    "owner": "mickeymack"
   }
 }
