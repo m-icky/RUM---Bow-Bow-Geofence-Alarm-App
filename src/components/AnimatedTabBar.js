@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from './ThemeContext';
 
 const TABS = [
+  { id: 'profile', label: 'Profile', activeIcon: 'person', inactiveIcon: 'person-outline' },
   { id: 'home', label: 'Home', activeIcon: 'home', inactiveIcon: 'home-outline' },
   { id: 'sounds', label: 'Sounds', activeIcon: 'musical-notes', inactiveIcon: 'musical-notes-outline' },
   { id: 'settings', label: 'Settings', activeIcon: 'settings', inactiveIcon: 'settings-outline' },
@@ -43,13 +44,13 @@ export default function AnimatedTabBar({ currentTab, onTabPress, scrollX }) {
   // Interpolate position from real-time scrollX or fallbackAnim
   const translateX = scrollX
     ? scrollX.interpolate({
-        inputRange: [0, screenWidth, screenWidth * 2],
-        outputRange: [0, tabWidth, tabWidth * 2],
+        inputRange: [0, screenWidth, screenWidth * 2, screenWidth * 3],
+        outputRange: [0, tabWidth, tabWidth * 2, tabWidth * 3],
         extrapolate: 'clamp',
       })
     : fallbackAnim.interpolate({
-        inputRange: [0, 1, 2],
-        outputRange: [0, tabWidth, tabWidth * 2],
+        inputRange: [0, 1, 2, 3],
+        outputRange: [0, tabWidth, tabWidth * 2, tabWidth * 3],
       });
 
   return (

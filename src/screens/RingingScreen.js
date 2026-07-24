@@ -17,6 +17,12 @@ const TONES_MAP = {
   radar: require('../../assets/sounds/radar.wav'),
   chimes: require('../../assets/sounds/chimes.wav'),
   breeze: require('../../assets/sounds/breeze.wav'),
+  alarm_clock: require('../../assets/sounds/alarm_clock.wav'),
+  digital_beep: require('../../assets/sounds/digital_beep.wav'),
+  rooster: require('../../assets/sounds/rooster.wav'),
+  siren_loud: require('../../assets/sounds/siren_loud.wav'),
+  train_horn: require('../../assets/sounds/train_horn.wav'),
+  cat_meow: require('../../assets/sounds/cat_meow.wav'),
 };
 
 export default function RingingScreen({
@@ -82,9 +88,14 @@ export default function RingingScreen({
     // Audio Playback
     const startAudio = async () => {
       try {
-        const soundSource = activeTone === 'custom' && customAudioData
-          ? { uri: customAudioData }
-          : (TONES_MAP[activeTone] || TONES_MAP.bark);
+        let soundSource;
+        if (activeTone && (activeTone.startsWith('http://') || activeTone.startsWith('https://') || activeTone.startsWith('file://') || activeTone.startsWith('content://'))) {
+          soundSource = { uri: activeTone };
+        } else if (activeTone === 'custom' && customAudioData) {
+          soundSource = { uri: customAudioData };
+        } else {
+          soundSource = TONES_MAP[activeTone] || TONES_MAP.bark;
+        }
 
         const player = createAudioPlayer(soundSource);
         player.loop = true;

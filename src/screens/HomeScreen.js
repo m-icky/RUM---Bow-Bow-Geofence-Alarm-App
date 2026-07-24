@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { createAudioPlayer } from 'expo-audio';
 import { getDistance as geolibGetDistance } from 'geolib';
 import { useTheme } from '../components/ThemeContext';
+import * as DocumentPicker from 'expo-document-picker';
 import MascotRum from '../components/MascotRum';
 import AppHeader from '../components/AppHeader';
 
@@ -25,7 +26,26 @@ const TONES_MAP = {
   radar: require('../../assets/sounds/radar.wav'),
   chimes: require('../../assets/sounds/chimes.wav'),
   breeze: require('../../assets/sounds/breeze.wav'),
+  alarm_clock: require('../../assets/sounds/alarm_clock.wav'),
+  digital_beep: require('../../assets/sounds/digital_beep.wav'),
+  rooster: require('../../assets/sounds/rooster.wav'),
+  siren_loud: require('../../assets/sounds/siren_loud.wav'),
+  train_horn: require('../../assets/sounds/train_horn.wav'),
+  cat_meow: require('../../assets/sounds/cat_meow.wav'),
 };
+
+const ALL_SOUND_PRESETS = [
+  { id: 'bark', name: "Companion's Bark", icon: 'paw', source: require('../../assets/sounds/bark.wav'), tag: 'dog' },
+  { id: 'radar', name: 'Digital Radar', icon: 'radio', source: require('../../assets/sounds/radar.wav'), tag: 'beep' },
+  { id: 'chimes', name: 'Melodic Chimes', icon: 'notifications', source: require('../../assets/sounds/chimes.wav'), tag: 'ring' },
+  { id: 'breeze', name: 'Siren Pulse', icon: 'warning', source: require('../../assets/sounds/breeze.wav'), tag: 'siren' },
+  { id: 'alarm_clock', name: 'Classic Alarm Clock', icon: 'alarm', source: require('../../assets/sounds/alarm_clock.wav'), tag: 'alarm' },
+  { id: 'digital_beep', name: 'Digital Beep Alarm', icon: 'timer-outline', source: require('../../assets/sounds/digital_beep.wav'), tag: 'beep' },
+  { id: 'rooster', name: 'Morning Rooster Crow', icon: 'sunny-outline', source: require('../../assets/sounds/rooster.wav'), tag: 'clock' },
+  { id: 'siren_loud', name: 'Emergency Siren', icon: 'megaphone-outline', source: require('../../assets/sounds/siren_loud.wav'), tag: 'siren' },
+  { id: 'train_horn', name: 'Locomotive Train Horn', icon: 'train-outline', source: require('../../assets/sounds/train_horn.wav'), tag: 'horn' },
+  { id: 'cat_meow', name: 'Kitty Meow', icon: 'heart-outline', source: require('../../assets/sounds/cat_meow.wav'), tag: 'cat' },
+];
 
 export default function HomeScreen({
   alarms = [],
@@ -57,23 +77,46 @@ export default function HomeScreen({
   const [editName, setEditName] = useState('');
   const [editRadius, setEditRadius] = useState(1500);
   const [editSound, setEditSound] = useState('bark');
+  const [editCustomName, setEditCustomName] = useState('');
+  const [selectedTag, setSelectedTag] = useState('all');
   const previewPlayerRef = useRef(null);
 
-  const playSoundPreview = (toneId) => {
+  const stopSoundPreview = () => {
+    if (previewPlayerRef.current) {
+      try {
+        previewPlayerRef.current.pause();
+        previewPlayerRef.current.remove();
+      } catch (e) {}
+      previewPlayerRef.current = null;
+    }
+  };
+
+  const playSoundPreview = (soundKeyOrUri) => {
     try {
-      if (previewPlayerRef.current) {
-        try { previewPlayerRef.current.remove(); } catch (e) {}
-        previewPlayerRef.current = null;
+      stopSoundPreview();
+      let source;
+      if (soundKeyOrUri && (soundKeyOrUri.startsWith('http://') || soundKeyOrUri.startsWith('https://') || soundKeyOrUri.startsWith('file://') || soundKeyOrUri.startsWith('content://'))) {
+        source = { uri: soundKeyOrUri };
+      } else if (TONES_MAP[soundKeyOrUri]) {
+        source = TONES_MAP[soundKeyOrUri];
+      } else {
+        const found = ALL_SOUND_PRESETS.find(s => s.id === soundKeyOrUri);
+        source = (found && found.uri) ? { uri: found.uri } : TONES_MAP.bark;
       }
-      const source = TONES_MAP[toneId] || TONES_MAP.bark;
       const player = createAudioPlayer(source);
-      player.volume = 0.8;
+      player.volume = 0.85;
       player.play();
       previewPlayerRef.current = player;
     } catch (e) {
       console.warn("Could not play sound preview:", e);
     }
   };
+
+  useEffect(() => {
+    if (!editingAlarm) {
+      stopSoundPreview();
+    }
+  }, [editingAlarm]);
 
   useEffect(() => {
     // Smooth page entrance
@@ -105,6 +148,10 @@ export default function HomeScreen({
         }),
       ])
     ).start();
+
+    return () => {
+      stopSoundPreview();
+    };
   }, []);
 
   // Distance calculator using geolib
@@ -150,6 +197,25 @@ export default function HomeScreen({
     setEditName(alarm.name);
     setEditRadius(alarm.radius || 1500);
     setEditSound(alarm.sound || 'bark');
+    setEditCustomName(alarm.customAudioName || '');
+  };
+
+  const handlePickCustomSoundInModal = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['audio/*', 'video/*', 'application/ogg'],
+        copyToCacheDirectory: true
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setEditSound(file.uri);
+        setEditCustomName(file.name);
+        playSoundPreview(file.uri);
+      }
+    } catch (e) {
+      console.error('Failed to pick custom audio/video file:', e);
+    }
   };
 
   const saveEdit = () => {
@@ -157,7 +223,7 @@ export default function HomeScreen({
       try { previewPlayerRef.current.remove(); } catch (e) {}
     }
     if (editingAlarm && onUpdateAlarm) {
-      onUpdateAlarm(editingAlarm.id, editName, editingAlarm.coords, editRadius, editSound);
+      onUpdateAlarm(editingAlarm.id, editName, editingAlarm.coords, editRadius, editSound, editCustomName);
     }
     setEditingAlarm(null);
   };
@@ -461,45 +527,103 @@ export default function HomeScreen({
               style={{ width: '100%', height: 40, marginTop: 5 }}
             />
 
-            <Text style={[styles.modalLabel, { color: colors.textSecondary, marginTop: 14 }]}>
-              Alarm Alert Sound:
-            </Text>
-            <View style={styles.soundOptionsRow}>
-              {[
-                { id: 'bark', name: `${companionName}'s Bark`, icon: 'paw' },
-                { id: 'radar', name: 'Digital Radar', icon: 'radio' },
-                { id: 'chimes', name: 'Melodic Chimes', icon: 'notifications' },
-                { id: 'breeze', name: 'Siren Pulse', icon: 'warning' },
-              ].map((snd) => {
-                const isSelected = editSound === snd.id;
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+              <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>
+                Alarm Alert Sound:
+              </Text>
+              <TouchableOpacity onPress={handlePickCustomSoundInModal}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.accent }}>+ Custom MP3/MP4</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Pixabay Sound Categories / Tag Filter */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
+              {['all', 'alarm', 'clock', 'ring', 'beep', 'horn', 'dog', 'cat'].map((tag) => {
+                const isTagSelected = selectedTag === tag;
                 return (
                   <TouchableOpacity
-                    key={snd.id}
-                    style={[
-                      styles.soundOptionChip,
-                      {
-                        backgroundColor: isSelected ? colors.accent : colors.surface,
-                        borderColor: isSelected ? colors.accent : 'rgba(255,255,255,0.08)',
-                      }
-                    ]}
-                    onPress={() => {
-                      setEditSound(snd.id);
-                      playSoundPreview(snd.id);
+                    key={tag}
+                    style={{
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
+                      borderRadius: 12,
+                      backgroundColor: isTagSelected ? colors.accent : colors.surface,
+                      marginRight: 6,
+                      borderWidth: 1,
+                      borderColor: isTagSelected ? colors.accent : 'rgba(255,255,255,0.08)'
                     }}
+                    onPress={() => setSelectedTag(tag)}
                   >
-                    <Ionicons 
-                      name={snd.icon} 
-                      size={14} 
-                      color={isSelected ? '#fff' : colors.textSecondary} 
-                      style={{ marginRight: 5 }} 
-                    />
-                    <Text style={[styles.soundOptionText, { color: isSelected ? '#fff' : colors.text }]}>
-                      {snd.name}
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: isTagSelected ? '#fff' : colors.textSecondary }}>
+                      {tag.toUpperCase()}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
-            </View>
+            </ScrollView>
+
+            {/* Sound Presets Options Grid */}
+            <ScrollView style={{ maxHeight: 110, marginVertical: 4 }} nestedScrollEnabled={true}>
+              <View style={styles.soundOptionsRow}>
+                {ALL_SOUND_PRESETS
+                  .filter(snd => selectedTag === 'all' || snd.tag === selectedTag)
+                  .map((snd) => {
+                    const isSelected = editSound === snd.id;
+                    const displayName = snd.id === 'bark' ? `${companionName}'s Bark` : snd.name;
+                    return (
+                      <TouchableOpacity
+                        key={snd.id}
+                        style={[
+                          styles.soundOptionChip,
+                          {
+                            backgroundColor: isSelected ? colors.accent : colors.surface,
+                            borderColor: isSelected ? colors.accent : 'rgba(255,255,255,0.08)',
+                          }
+                        ]}
+                        onPress={() => {
+                          setEditSound(snd.id);
+                          playSoundPreview(snd.id);
+                        }}
+                      >
+                        <Ionicons 
+                          name={snd.icon} 
+                          size={13} 
+                          color={isSelected ? '#fff' : colors.textSecondary} 
+                          style={{ marginRight: 5 }} 
+                        />
+                        <Text style={[styles.soundOptionText, { color: isSelected ? '#fff' : colors.text }]}>
+                          {displayName}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+              </View>
+            </ScrollView>
+
+            {/* Custom Sound Selection Indicator & Uploader */}
+            {editSound && (editSound.startsWith('file://') || editSound.startsWith('content://')) ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(37, 99, 235, 0.12)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: colors.accent, marginVertical: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 0.85 }}>
+                  <Ionicons name="musical-notes" size={14} color={colors.accent} style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }} numberOfLines={1}>
+                    {editCustomName || 'Custom Audio File'}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => playSoundPreview(editSound)}>
+                  <Ionicons name="play-circle" size={20} color={colors.accent} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginVertical: 4 }}
+                onPress={handlePickCustomSoundInModal}
+              >
+                <Ionicons name="cloud-upload-outline" size={14} color={colors.accent} style={{ marginRight: 6 }} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>
+                  Upload Custom MP3 / MP4 Sound File
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity 
               style={[styles.modalPickMapBtn, { borderColor: colors.accent }]}

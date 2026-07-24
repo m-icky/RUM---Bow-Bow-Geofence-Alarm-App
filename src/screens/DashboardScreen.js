@@ -115,7 +115,8 @@ export default function DashboardScreen({
         routePath,
         alarms,
         editingAlarmId,
-        colors
+        colors,
+        heading: deviceHeading
       };
       const msg = JSON.stringify({
         type: 'UPDATE_MAP',
@@ -128,13 +129,17 @@ export default function DashboardScreen({
         true;
       `);
     }
-  }, [isMapReady, localFromCoords, localDestCoords, localRadius, routePath, alarms, editingAlarmId, colors]);
+  }, [isMapReady, localFromCoords, localDestCoords, localRadius, routePath, alarms, editingAlarmId, colors, deviceHeading]);
+
+  const [isMapPanned, setIsMapPanned] = useState(false);
 
   const handleMapMessage = (event) => {
     try {
       const message = JSON.parse(event.nativeEvent.data);
       if (message.type === 'MAP_READY') {
         setIsMapReady(true);
+      } else if (message.type === 'MAP_DRAGGED') {
+        setIsMapPanned(true);
       } else if (message.type === 'MARKER_DRAG_END') {
         onMarkerDragEnd({
           nativeEvent: {
@@ -165,10 +170,30 @@ export default function DashboardScreen({
   const [searchQuery, setSearchQuery] = useState(destName);
   const [suggestions, setSuggestions] = useState([]);
   const [activeInput, setActiveInput] = useState(null); // 'from' or 'to'
+  const [isCustomFrom, setIsCustomFrom] = useState(false);
+  const isCustomFromRef = useRef(false);
+  const activeInputRef = useRef(null);
+
+  const updateIsCustomFrom = (val) => {
+    isCustomFromRef.current = val;
+    setIsCustomFrom(val);
+  };
+
+  const updateActiveInput = (val) => {
+    activeInputRef.current = val;
+    setActiveInput(val);
+  };
+
   const [favorites, setFavorites] = useState([]);
 
   // Route properties
-  const [routePath, setRoutePath] = useState([]);
+  const [routePath, setRoutePath] = useState(() => {
+    const start = currentCoords || { latitude: 8.5241, longitude: 76.9366 };
+    return (start && destCoords) ? [
+      { latitude: start.latitude, longitude: start.longitude },
+      { latitude: destCoords.latitude, longitude: destCoords.longitude }
+    ] : [];
+  });
   const [routeDistance, setRouteDistance] = useState(0);
   const [routeDuration, setRouteDuration] = useState(0);
   const [searchTimer, setSearchTimer] = useState(null);
@@ -230,7 +255,9 @@ export default function DashboardScreen({
               latitude: location.coords.latitude,
               longitude: location.coords.longitude
             };
-            setLocalFromCoords(coords);
+            if (!isCustomFromRef.current && activeInputRef.current !== 'from') {
+              setLocalFromCoords(coords);
+            }
 
             const now = location.timestamp || Date.now();
             let detectedKmH = null;
@@ -333,7 +360,7 @@ export default function DashboardScreen({
   };
 
   const handleSearchFocus = (inputType) => {
-    setActiveInput(inputType);
+    updateActiveInput(inputType);
     setSuggestions([
       { name: 'Use Current Location', isCurrentLocation: true, desc: 'Set to your device GPS position' },
       ...PRESET_PLACES
@@ -343,10 +370,11 @@ export default function DashboardScreen({
   const handleSearchChange = (text, inputType) => {
     if (inputType === 'from') {
       setFromQuery(text);
+      updateIsCustomFrom(true);
     } else {
       setSearchQuery(text);
     }
-    setActiveInput(inputType);
+    updateActiveInput(inputType);
 
     const baseSuggestions = [
       { name: 'Use Current Location', isCurrentLocation: true, desc: 'Set to your device GPS position' }
@@ -430,6 +458,7 @@ export default function DashboardScreen({
   };
 
   const selectSuggestion = async (place) => {
+    const targetInput = activeInputRef.current || activeInput || 'to';
     if (place.isCurrentLocation) {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
@@ -448,13 +477,28 @@ export default function DashboardScreen({
           longitude: location.coords.longitude,
         };
 
-        if (activeInput === 'from') {
+        if (targetInput === 'from') {
+          updateIsCustomFrom(false);
           setLocalFromCoords(coords);
           setFromQuery('Current Location');
+          if (mapRef) {
+            mapRef.animateToRegion({
+              ...coords,
+              latitudeDelta: 0.012,
+              longitudeDelta: 0.012
+            });
+          }
         } else {
           setLocalDestCoords(coords);
           setLocalDestName('Current Location');
           setSearchQuery('Current Location');
+          if (mapRef) {
+            mapRef.animateToRegion({
+              ...coords,
+              latitudeDelta: 0.012,
+              longitudeDelta: 0.012
+            });
+          }
         }
       } catch (e) {
         console.error("Failed to get current location:", e);
@@ -462,19 +506,51 @@ export default function DashboardScreen({
       }
     } else {
       const coords = { latitude: place.latitude, longitude: place.longitude };
-      if (activeInput === 'from') {
+      if (targetInput === 'from') {
+        updateIsCustomFrom(true);
         setLocalFromCoords(coords);
         setFromQuery(place.name);
+        if (mapRef) {
+          if (localDestCoords) {
+            mapRef.fitToCoordinates([coords, localDestCoords]);
+          } else {
+            mapRef.animateToRegion({
+              ...coords,
+              latitudeDelta: 0.012,
+              longitudeDelta: 0.012
+            });
+          }
+        }
       } else {
         lastSyncedDestRef.current = `${coords.latitude.toFixed(5)},${coords.longitude.toFixed(5)}`;
         lastSyncedNameRef.current = place.name;
         setLocalDestCoords(coords);
         setLocalDestName(place.name);
         setSearchQuery(place.name);
+        if (mapRef) {
+          if (localFromCoords) {
+            mapRef.fitToCoordinates([localFromCoords, coords]);
+          } else {
+            mapRef.animateToRegion({
+              ...coords,
+              latitudeDelta: 0.012,
+              longitudeDelta: 0.012
+            });
+          }
+        }
       }
     }
     setSuggestions([]);
-    setActiveInput(null);
+    updateActiveInput(null);
+  };
+
+  const handleSearchSubmit = (inputType) => {
+    if (suggestions && suggestions.length > 0) {
+      const place = suggestions.find(s => !s.isCurrentLocation) || suggestions[0];
+      if (place) {
+        selectSuggestion(place);
+      }
+    }
   };
 
   const swapLocations = () => {
@@ -485,6 +561,8 @@ export default function DashboardScreen({
     const tempCoords = localFromCoords;
     setLocalFromCoords(localDestCoords);
     setLocalDestCoords(tempCoords);
+
+    updateIsCustomFrom(searchQuery !== 'Current Location' && searchQuery !== 'Your Current Location');
   };
 
   const animateToUserLocation = async () => {
@@ -544,10 +622,54 @@ export default function DashboardScreen({
     }
   }, [destName]);
 
+  const [deviceHeading, setDeviceHeading] = useState(0);
+
+  // Live compass heading tracking
   useEffect(() => {
-    if (currentCoords) {
+    let headingSub = null;
+    const startHeadingWatch = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          headingSub = await Location.watchHeadingAsync((hData) => {
+            const headingVal = hData.trueHeading !== -1 && hData.trueHeading !== undefined
+              ? hData.trueHeading
+              : (hData.magHeading || 0);
+            const rounded = Math.round(headingVal);
+            setDeviceHeading(rounded);
+            if (webViewRef.current) {
+              const msg = JSON.stringify({
+                type: 'UPDATE_HEADING',
+                payload: { heading: rounded }
+              });
+              webViewRef.current.injectJavaScript(`
+                if (window.updateMapFromReactNative) {
+                  window.updateMapFromReactNative(${JSON.stringify(msg)});
+                }
+                true;
+              `);
+            }
+          });
+        }
+      } catch (e) {
+        console.log('Heading watch error:', e);
+      }
+    };
+    startHeadingWatch();
+
+    return () => {
+      if (headingSub) {
+        try { headingSub.remove(); } catch (e) {}
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (currentCoords && !isCustomFromRef.current && activeInputRef.current !== 'from') {
       setLocalFromCoords(currentCoords);
-      setFromQuery('Current Location');
+      if (fromQuery === 'Current Location' || fromQuery === 'Your Current Location') {
+        setFromQuery('Current Location');
+      }
     }
   }, [currentCoords]);
 
@@ -560,7 +682,7 @@ export default function DashboardScreen({
     );
   };
 
-  // Dynamic route API fetcher (OSRM Open-Source Road Router)
+  // Dynamic route API fetcher (OSRM Open-Source Road Router with Live Travel Tracking)
   useEffect(() => {
     if (!localFromCoords || !localDestCoords) return;
 
@@ -568,8 +690,18 @@ export default function DashboardScreen({
 
     setRouteDestCoords(localDestCoords);
 
-    // Clear previous route immediately on coordinate change
-    setRoutePath([]);
+    // Calculate real-time distance and time readout immediately on position change
+    const liveDist = getDistance(localFromCoords, localDestCoords);
+    setRouteDistance(liveDist);
+    setRouteDuration((liveDist / 1000 / 50) * 3600);
+
+    // If routePath is empty, initialize with connecting points
+    if (!routePath || routePath.length === 0) {
+      setRoutePath([
+        { latitude: localFromCoords.latitude, longitude: localFromCoords.longitude },
+        { latitude: localDestCoords.latitude, longitude: localDestCoords.longitude }
+      ]);
+    }
 
     // Check if points are identical (prevents fetching loops/zigzags on same location)
     const latDiff = Math.abs(localFromCoords.latitude - localDestCoords.latitude);
@@ -591,7 +723,7 @@ export default function DashboardScreen({
       for (const url of endpoints) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2500);
+          const timeoutId = setTimeout(() => controller.abort(), 6000);
           const res = await fetch(url, { signal: controller.signal });
           clearTimeout(timeoutId);
 
@@ -627,19 +759,13 @@ export default function DashboardScreen({
                 setRoutePath(coords);
                 setRouteDistance(route.distance);
                 setRouteDuration(route.duration);
-                return; // Successfully loaded road route!
+                return; // Successfully loaded live road route!
               }
             }
           }
         } catch (e) {
           // Try next road routing endpoint
         }
-      }
-
-      if (active) {
-        const dist = getDistance(localFromCoords, localDestCoords);
-        setRouteDistance(dist);
-        setRouteDuration((dist / 1000 / 50) * 3600);
       }
     };
 
@@ -648,7 +774,7 @@ export default function DashboardScreen({
     return () => {
       active = false;
     };
-  }, [localFromCoords, localDestCoords]);
+  }, [localFromCoords?.latitude, localFromCoords?.longitude, localDestCoords?.latitude, localDestCoords?.longitude]);
 
   // Auto-fit map boundaries
   useEffect(() => {
@@ -721,28 +847,48 @@ export default function DashboardScreen({
     }
   };
 
-  const zoomToGPS = async () => {
+  const recenterMap = async () => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-      let location = await Location.getLastKnownPositionAsync();
-      if (!location) {
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
+      let coords = currentCoords;
+      if (!coords) {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          let location = await Location.getLastKnownPositionAsync();
+          if (!location) {
+            location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          }
+          if (location) {
+            coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+          }
+        }
+      }
+
+      if (coords && webViewRef.current) {
+        const msg = JSON.stringify({
+          type: 'ANIMATE_TO_REGION',
+          payload: {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            zoom: 15
+          }
         });
+        webViewRef.current.injectJavaScript(`
+          if (window.updateMapFromReactNative) {
+            window.updateMapFromReactNative(${JSON.stringify(msg)});
+          }
+          true;
+        `);
+      } else if (localFromCoords && localDestCoords && mapRef) {
+        mapRef.fitToCoordinates([localFromCoords, localDestCoords], { animated: true });
       }
-      if (mapRef && location) {
-        mapRef.animateToRegion({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          latitudeDelta: 0.012,
-          longitudeDelta: 0.012
-        }, 600);
-      }
+      setIsMapPanned(false);
+      showToast('Map recentered to current location');
     } catch (e) {
-      console.error(e);
+      console.error("Recenter error:", e);
     }
   };
+
+  const zoomToGPS = recenterMap;
 
   const handleAlarmPress = (alarm) => {
     setLocalDestCoords(alarm.coords);
@@ -885,13 +1031,16 @@ export default function DashboardScreen({
                 value={fromQuery}
                 onFocus={() => handleSearchFocus('from')}
                 onChangeText={(text) => handleSearchChange(text, 'from')}
+                onSubmitEditing={() => handleSearchSubmit('from')}
                 placeholder="From: Start location..."
                 placeholderTextColor={colors.textSecondary}
+                returnKeyType="search"
               />
               {activeInput === 'from' && fromQuery.length > 0 && (
                 <TouchableOpacity
                   onPress={() => {
                     setFromQuery('');
+                    updateIsCustomFrom(true);
                     setSuggestions([
                       { name: 'Use Current Location', isCurrentLocation: true, desc: 'Set to your device GPS position' },
                       ...PRESET_PLACES
@@ -911,8 +1060,10 @@ export default function DashboardScreen({
                 value={searchQuery}
                 onFocus={() => handleSearchFocus('to')}
                 onChangeText={(text) => handleSearchChange(text, 'to')}
+                onSubmitEditing={() => handleSearchSubmit('to')}
                 placeholder="To: Search destination..."
                 placeholderTextColor={colors.textSecondary}
+                returnKeyType="search"
               />
               {activeInput === 'to' && searchQuery.length > 0 && (
                 <TouchableOpacity
@@ -977,10 +1128,15 @@ export default function DashboardScreen({
           <Ionicons name="radio-button-on" size={18} color="#2ecc71" />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]}
-          onPress={zoomToGPS}
+          style={[
+            styles.mapFloatBtn,
+            { backgroundColor: colors.surfaceOpaque },
+            !isMapPanned && { borderColor: '#2563eb', borderWidth: 1.5 }
+          ]}
+          onPress={recenterMap}
+          activeOpacity={0.8}
         >
-          <Ionicons name="locate" size={18} color="#3498db" />
+          <Ionicons name="locate" size={18} color={!isMapPanned ? "#2563eb" : colors.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.mapFloatBtn, { backgroundColor: colors.surfaceOpaque }]}
@@ -1023,6 +1179,16 @@ export default function DashboardScreen({
               <Text style={[styles.statVal, { color: colors.text }]}>~{effectiveAvgSpeed} km/h</Text>
               <Text style={[styles.statLbl, { color: colors.textSecondary }]}>{currentSpeed > 0 ? `Live ${currentSpeed}` : 'Avg Speed'}</Text>
             </View>
+            <View style={[styles.statDivider, { backgroundColor: colors.surface }]} />
+            <TouchableOpacity
+              style={styles.statCell}
+              onPress={recenterMap}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="navigate-circle" size={14} color="#2563eb" />
+              <Text style={[styles.statVal, { color: '#2563eb', fontWeight: '800' }]}>Recenter</Text>
+              <Text style={[styles.statLbl, { color: colors.textSecondary }]}>Location</Text>
+            </TouchableOpacity>
           </View>
         </Animated.View>
 
@@ -1183,7 +1349,7 @@ const styles = StyleSheet.create({
   },
   suggestionsBox: {
     position: 'absolute',
-    top: 100,
+    top: 154,
     left: 10,
     right: 10,
     borderRadius: 12,
@@ -1509,6 +1675,28 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 16,
   },
+  recenterPillBtn: {
+    position: 'absolute',
+    bottom: 220,
+    left: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 25,
+    zIndex: 30,
+  },
+  recenterPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
 });
 
 const LEAFLET_HTML = `
@@ -1530,6 +1718,11 @@ const LEAFLET_HTML = `
       background: none;
       border: none;
     }
+    @keyframes gmapPulse {
+      0% { transform: scale(0.8); opacity: 0.8; }
+      70% { transform: scale(1.6); opacity: 0.15; }
+      100% { transform: scale(1.8); opacity: 0; }
+    }
   </style>
 </head>
 <body>
@@ -1545,6 +1738,12 @@ const LEAFLET_HTML = `
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+
+    map.on('dragstart zoomstart', function(e) {
+      if (e && e.originalEvent) {
+        sendToReactNative({ type: 'MAP_DRAGGED' });
+      }
+    });
 
     var startMarker = null;
     var destMarker = null;
@@ -1565,6 +1764,11 @@ const LEAFLET_HTML = `
         const message = JSON.parse(messageString);
         if (message.type === 'UPDATE_MAP') {
           updateMap(message.payload);
+        } else if (message.type === 'UPDATE_HEADING') {
+          const beam = document.getElementById('user-heading-beam');
+          if (beam) {
+            beam.style.transform = 'rotate(' + message.payload.heading + 'deg)';
+          }
         } else if (message.type === 'ANIMATE_TO_REGION') {
           const region = message.payload;
           map.setView([region.latitude, region.longitude], 14, { animate: true });
@@ -1572,7 +1776,6 @@ const LEAFLET_HTML = `
           const coords = message.payload;
           if (coords.length > 0) {
             const bounds = L.latLngBounds(coords.map(c => [c.latitude, c.longitude]));
-            // paddingTopLeft: [left, top], paddingBottomRight: [right, bottom]
             map.fitBounds(bounds, { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
           }
         }
@@ -1588,11 +1791,7 @@ const LEAFLET_HTML = `
       const colors = data.colors || {};
       const accentColor = colors.accent || '#3498db';
 
-      // 0. Clean up existing layers from the map before redrawing
-      if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
-      if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
-      if (destCircle) { map.removeLayer(destCircle); destCircle = null; }
-      if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+      // 0. Clean up other alarms layers
       otherAlarmMarkers.forEach(m => map.removeLayer(m));
       otherAlarmCircles.forEach(c => map.removeLayer(c));
       otherAlarmMarkers = [];
@@ -1612,60 +1811,94 @@ const LEAFLET_HTML = `
         isFirstLoad = false;
       }
 
-      // 1. Start Marker (Green Pin)
+      // 1. Start Marker (Google Maps Live Location Blue Dot with Compass Direction Cone)
       if (data.localFromCoords) {
         const fromLat = data.localFromCoords.latitude;
         const fromLng = data.localFromCoords.longitude;
-        var greenIcon = L.divIcon({
+        const headingDeg = data.heading !== undefined ? data.heading : 0;
+
+        const userHtml = \`
+          <div style="position: relative; width: 70px; height: 70px; display: flex; justify-content: center; align-items: center;">
+            <div id="user-heading-beam" style="position: absolute; top: 0; left: 0; width: 70px; height: 70px; transform-origin: 35px 35px; transform: rotate(\` + headingDeg + \`deg); transition: transform 0.12s linear;">
+              <svg width="70" height="70" viewBox="0 0 70 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="fanGrad" x1="35" y1="35" x2="35" y2="0" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#2563eb" stop-opacity="0.85"/>
+                    <stop offset="70%" stop-color="#3b82f6" stop-opacity="0.35"/>
+                    <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.0"/>
+                  </linearGradient>
+                </defs>
+                <path d="M35 35 L16 3 A35 35 0 0 1 54 3 Z" fill="url(#fanGrad)"/>
+              </svg>
+            </div>
+            <div style="position: absolute; width: 28px; height: 28px; border-radius: 50%; background: rgba(37, 99, 235, 0.25); border: 1.5px solid rgba(37, 99, 235, 0.45); animation: gmapPulse 2s infinite ease-out;"></div>
+            <div style="position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #2563eb; border: 3px solid #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.35); z-index: 10;"></div>
+          </div>
+        \`;
+
+        var userIcon = L.divIcon({
           className: 'custom-div-icon',
-          html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#2ecc71"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
-          iconSize: [30, 42],
-          iconAnchor: [15, 42]
+          html: userHtml,
+          iconSize: [70, 70],
+          iconAnchor: [35, 35]
         });
-        startMarker = L.marker([fromLat, fromLng], { icon: greenIcon }).addTo(map);
+
+        if (startMarker) {
+          startMarker.setLatLng([fromLat, fromLng]);
+          startMarker.setIcon(userIcon);
+        } else {
+          startMarker = L.marker([fromLat, fromLng], { icon: userIcon }).addTo(map);
+        }
       }
 
-      // 2. Stop Marker (Blue Draggable Pin) & Geofence Circle
+      // 2. Stop Marker (Red Draggable Pin) & Geofence Circle
       if (data.localDestCoords) {
         const destLat = data.localDestCoords.latitude;
         const destLng = data.localDestCoords.longitude;
         
-        var destIcon = L.divIcon({
-          className: 'custom-div-icon',
-          html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#e74c3c"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
-          iconSize: [30, 42],
-          iconAnchor: [15, 42]
-        });
+        if (destMarker) {
+          destMarker.setLatLng([destLat, destLng]);
+        } else {
+          var destIcon = L.divIcon({
+            className: 'custom-div-icon',
+            html: '<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 0C6.72 0 0 6.72 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.72 23.28 0 15 0Z" fill="#e74c3c"/><circle cx="15" cy="15" r="5" fill="white"/></svg>',
+            iconSize: [30, 42],
+            iconAnchor: [15, 42]
+          });
 
-        destMarker = L.marker([destLat, destLng], { 
-          icon: destIcon,
-          draggable: true 
-        }).addTo(map);
+          destMarker = L.marker([destLat, destLng], { 
+            icon: destIcon,
+            draggable: true 
+          }).addTo(map);
 
-        destMarker.on('drag', function(e) {
-          const latlng = destMarker.getLatLng();
-          if (destCircle) {
-            destCircle.setLatLng(latlng);
-          }
-        });
-
-        destMarker.on('dragend', function(e) {
-          const latlng = destMarker.getLatLng();
-          if (startMarker) {
-            const startLatLng = startMarker.getLatLng();
-            fetchRouteInLeaflet(startLatLng.lat, startLatLng.lng, latlng.lat, latlng.lng);
-          }
-          sendToReactNative({
-            type: 'MARKER_DRAG_END',
-            coordinate: {
-              latitude: latlng.lat,
-              longitude: latlng.lng
+          destMarker.on('drag', function(e) {
+            const latlng = destMarker.getLatLng();
+            if (destCircle) {
+              destCircle.setLatLng(latlng);
             }
           });
-        });
 
-        // Draw Circle Geofence
-        if (data.localRadius !== undefined) {
+          destMarker.on('dragend', function(e) {
+            const latlng = destMarker.getLatLng();
+            if (startMarker) {
+              const startLatLng = startMarker.getLatLng();
+              fetchRouteInLeaflet(startLatLng.lat, startLatLng.lng, latlng.lat, latlng.lng);
+            }
+            sendToReactNative({
+              type: 'MARKER_DRAG_END',
+              coordinate: {
+                latitude: latlng.lat,
+                longitude: latlng.lng
+              }
+            });
+          });
+        }
+
+        // Draw / update Circle Geofence
+        if (destCircle) {
+          destCircle.setLatLng([destLat, destLng]);
+          if (data.localRadius !== undefined) destCircle.setRadius(data.localRadius);
+        } else if (data.localRadius !== undefined) {
           destCircle = L.circle([destLat, destLng], {
             radius: data.localRadius,
             color: accentColor,
@@ -1677,46 +1910,90 @@ const LEAFLET_HTML = `
       }
 
       // 3. Road Polyline (Strictly via roads)
-      if (data.routePath && data.routePath.length > 1) {
-        if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+      if (data.routePath && data.routePath.length > 2) {
         const latlngs = data.routePath.map(pt => [pt.latitude, pt.longitude]);
-        routePolyline = L.polyline(latlngs, {
-          color: '#2563eb',
-          weight: 5,
-          opacity: 0.85,
-          lineJoin: 'round',
-          lineCap: 'round'
-        }).addTo(map);
-        try {
-          map.fitBounds(routePolyline.getBounds(), { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
-        } catch (err) {}
+        if (routePolyline) {
+          routePolyline.setLatLngs(latlngs);
+        } else {
+          routePolyline = L.polyline(latlngs, {
+            color: '#2563eb',
+            weight: 5,
+            opacity: 0.85,
+            lineJoin: 'round',
+            lineCap: 'round'
+          }).addTo(map);
+        }
+        if (isFirstLoad) {
+          try {
+            map.fitBounds(routePolyline.getBounds(), { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
+          } catch (err) {}
+        }
+      } else if (data.localFromCoords && data.localDestCoords) {
+        const latlngs = [
+          [data.localFromCoords.latitude, data.localFromCoords.longitude],
+          [data.localDestCoords.latitude, data.localDestCoords.longitude]
+        ];
+        if (routePolyline) {
+          routePolyline.setLatLngs(latlngs);
+        } else {
+          routePolyline = L.polyline(latlngs, {
+            color: '#2563eb',
+            weight: 4,
+            opacity: 0.5,
+            dashArray: '6, 8',
+            lineJoin: 'round',
+            lineCap: 'round'
+          }).addTo(map);
+        }
+        if (isFirstLoad) {
+          try {
+            map.fitBounds(routePolyline.getBounds(), { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
+          } catch (err) {}
+        }
+        fetchRouteInLeaflet(data.localFromCoords.latitude, data.localFromCoords.longitude, data.localDestCoords.latitude, data.localDestCoords.longitude);
       }
     }
 
     function fetchRouteInLeaflet(fromLat, fromLng, destLat, destLng) {
       if (!fromLat || !fromLng || !destLat || !destLng) return;
-      var url = 'https://routing.openstreetmap.de/routed-car/route/v1/driving/' + fromLng + ',' + fromLat + ';' + destLng + ',' + destLat + '?overview=full&geometries=geojson';
-      fetch(url)
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data && data.routes && data.routes.length > 0 && data.routes[0].geometry && data.routes[0].geometry.coordinates) {
-            var coords = data.routes[0].geometry.coordinates.map(function(pt) {
-              return [pt[1], pt[0]];
-            });
-            if (coords.length > 1) {
-              coords.unshift([fromLat, fromLng]);
-              coords.push([destLat, destLng]);
-              if (routePolyline) { map.removeLayer(routePolyline); }
-              routePolyline = L.polyline(coords, {
-                color: '#2563eb',
-                weight: 5,
-                opacity: 0.85,
-                lineJoin: 'round',
-                lineCap: 'round'
-              }).addTo(map);
+      var urls = [
+        'https://routing.openstreetmap.de/routed-car/route/v1/driving/' + fromLng + ',' + fromLat + ';' + destLng + ',' + destLat + '?overview=full&geometries=geojson',
+        'https://router.project-osrm.org/route/v1/driving/' + fromLng + ',' + fromLat + ';' + destLng + ',' + destLat + '?overview=full&geometries=geojson',
+        'https://routing.openstreetmap.de/routed-bike/route/v1/biking/' + fromLng + ',' + fromLat + ';' + destLng + ',' + destLat + '?overview=full&geometries=geojson'
+      ];
+
+      function tryFetch(index) {
+        if (index >= urls.length) return;
+        fetch(urls[index])
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (data && data.routes && data.routes.length > 0 && data.routes[0].geometry && data.routes[0].geometry.coordinates) {
+              var coords = data.routes[0].geometry.coordinates.map(function(pt) {
+                return [pt[1], pt[0]];
+              });
+              if (coords.length > 1) {
+                coords.unshift([fromLat, fromLng]);
+                coords.push([destLat, destLng]);
+                if (routePolyline) { map.removeLayer(routePolyline); }
+                routePolyline = L.polyline(coords, {
+                  color: '#2563eb',
+                  weight: 5,
+                  opacity: 0.85,
+                  lineJoin: 'round',
+                  lineCap: 'round'
+                }).addTo(map);
+                try {
+                  map.fitBounds(routePolyline.getBounds(), { paddingTopLeft: [40, 135], paddingBottomRight: [65, 210] });
+                } catch (err) {}
+              }
+            } else {
+              tryFetch(index + 1);
             }
-          }
-        }).catch(function(err) {});
+          }).catch(function() {
+            tryFetch(index + 1);
+          });
+      }
+      tryFetch(0);
     }
 
     // Listen for map taps to place or move the destination pin anywhere on the map

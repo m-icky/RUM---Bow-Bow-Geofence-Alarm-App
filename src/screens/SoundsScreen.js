@@ -12,6 +12,12 @@ const TONES_MAP = {
   radar: require('../../assets/sounds/radar.wav'),
   chimes: require('../../assets/sounds/chimes.wav'),
   breeze: require('../../assets/sounds/breeze.wav'),
+  alarm_clock: require('../../assets/sounds/alarm_clock.wav'),
+  digital_beep: require('../../assets/sounds/digital_beep.wav'),
+  rooster: require('../../assets/sounds/rooster.wav'),
+  siren_loud: require('../../assets/sounds/siren_loud.wav'),
+  train_horn: require('../../assets/sounds/train_horn.wav'),
+  cat_meow: require('../../assets/sounds/cat_meow.wav'),
 };
 
 const TONES_BASE = [
@@ -19,6 +25,12 @@ const TONES_BASE = [
   { id: 'radar', name: 'Digital Radar', desc: 'Rapid synth notification beeps' },
   { id: 'chimes', name: 'Melodic Chimes', desc: 'Sweet, gentle crystal sweeps' },
   { id: 'breeze', name: 'Siren Pulse', desc: 'Alternating frequency wake-up call' },
+  { id: 'alarm_clock', name: 'Classic Alarm Clock', desc: 'Twin-bell loud alarm ringing' },
+  { id: 'digital_beep', name: 'Digital Beep Alarm', desc: 'Sharp electronic wake-up beep' },
+  { id: 'rooster', name: 'Morning Rooster Crow', desc: 'Loud morning rooster crow' },
+  { id: 'siren_loud', name: 'Emergency Siren Warning', desc: 'High-intensity warning siren' },
+  { id: 'train_horn', name: 'Locomotive Train Horn', desc: 'Heavy locomotive air horn' },
+  { id: 'cat_meow', name: 'Kitty Meow', desc: 'Cute cat purr and meowing alert' },
 ];
 
 export default function SoundsScreen({
@@ -38,14 +50,20 @@ export default function SoundsScreen({
   const [localVolume, setLocalVolume] = useState(volume);
   const [previewSound, setPreviewSound] = useState(null);
 
+  const stopPreview = () => {
+    if (previewSound) {
+      try {
+        previewSound.pause();
+        previewSound.remove();
+      } catch (e) {}
+      setPreviewSound(null);
+    }
+  };
+
   useEffect(() => {
     return () => {
-      // Unload sound on screen unmount
-      if (previewSound) {
-        try {
-          previewSound.remove();
-        } catch (e) {}
-      }
+      // Unload sound on screen unmount or navigation
+      stopPreview();
     };
   }, [previewSound]);
 
@@ -57,15 +75,19 @@ export default function SoundsScreen({
 
   const playPreview = async (toneId, customUri) => {
     try {
-      if (previewSound) {
-        try {
-          previewSound.remove();
-        } catch (e) {}
+      stopPreview();
+
+      let source;
+      if (toneId === 'custom' && customUri) {
+        source = { uri: customUri };
+      } else if (toneId && (toneId.startsWith('http://') || toneId.startsWith('https://') || toneId.startsWith('file://') || toneId.startsWith('content://'))) {
+        source = { uri: toneId };
+      } else if (TONES_MAP[toneId]) {
+        source = TONES_MAP[toneId];
+      } else {
+        const found = TONES_BASE.find(t => t.id === toneId);
+        source = (found && found.uri) ? { uri: found.uri } : TONES_MAP.bark;
       }
-      
-      const source = toneId === 'custom' && customUri
-        ? { uri: customUri }
-        : (TONES_MAP[toneId] || TONES_MAP.bark);
 
       const player = createAudioPlayer(source);
       player.volume = localVolume;
@@ -79,7 +101,7 @@ export default function SoundsScreen({
   const handlePickDocument = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'audio/*',
+        type: ['audio/*', 'video/*', 'application/ogg'],
         copyToCacheDirectory: true
       });
 
@@ -124,7 +146,7 @@ export default function SoundsScreen({
               ]}
               onPress={() => selectTone(t.id)}
             >
-              <View>
+              <View style={{ flex: 0.9 }}>
                 <Text style={[styles.itemName, { color: colors.text }]}>{t.name}</Text>
                 <Text style={[styles.itemDesc, { color: colors.textSecondary }]}>{t.desc}</Text>
               </View>
@@ -143,7 +165,7 @@ export default function SoundsScreen({
 
         {/* Custom sound file uploader */}
         <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 25 }]}>
-          Upload Custom Sound
+          Upload Custom MP3 / MP4 Sound
         </Text>
         
         <TouchableOpacity 
@@ -151,8 +173,8 @@ export default function SoundsScreen({
           onPress={handlePickDocument}
         >
           <Ionicons name="folder-open" size={32} color={colors.accent} style={{ marginBottom: 6 }} />
-          <Text style={[styles.uploadText, { color: colors.text }]}>Tap to browse audio file</Text>
-          <Text style={styles.uploadLimits}>MP3, WAV or AAC (Max 5MB)</Text>
+          <Text style={[styles.uploadText, { color: colors.text }]}>Tap to browse MP3, MP4 or WAV audio</Text>
+          <Text style={styles.uploadLimits}>MP4, MP3, WAV or M4A supported</Text>
         </TouchableOpacity>
 
         {customAudioData && (

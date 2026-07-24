@@ -28,7 +28,9 @@ import TrackingScreen from './src/screens/TrackingScreen';
 import RingingScreen from './src/screens/RingingScreen';
 import SoundsScreen from './src/screens/SoundsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 import AnimatedTabBar from './src/components/AnimatedTabBar';
+import ProfileSetupModal from './src/components/ProfileSetupModal';
 
 // Splash Screen
 import MascotRum from './src/components/MascotRum';
@@ -224,6 +226,16 @@ function MainAppShell() {
   const [companionType, setCompanionType] = useState('dog');
   const [companionName, setCompanionName] = useState('Rum');
   
+  // User Profile State
+  const [userProfile, setUserProfile] = useState({
+    name: '',
+    username: '',
+    email: '',
+    phone: '',
+    photoUri: null,
+    isProfileSetup: false,
+  });
+  
   // Multiple alarms states
   const [alarms, setAlarms] = useState([]);
   const [triggeredAlarm, setTriggeredAlarm] = useState(null);
@@ -259,6 +271,11 @@ function MainAppShell() {
           if (data.companionName !== undefined) setCompanionName(data.companionName);
         }
         
+        const rawProfile = await AsyncStorage.getItem('rum_user_profile');
+        if (rawProfile) {
+          setUserProfile(JSON.parse(rawProfile));
+        }
+
         const rawAlarms = await AsyncStorage.getItem('rum_active_alarms');
         if (rawAlarms) {
           const loadedAlarms = JSON.parse(rawAlarms);
@@ -289,6 +306,15 @@ function MainAppShell() {
     }
   };
 
+  const saveUserProfile = async (profileData) => {
+    try {
+      setUserProfile(profileData);
+      await AsyncStorage.setItem('rum_user_profile', JSON.stringify(profileData));
+    } catch (e) {
+      console.error('Failed to save profile state:', e);
+    }
+  };
+
   // Splash timeout simulation
   useEffect(() => {
     if (currentScreen === 'splash') {
@@ -299,10 +325,22 @@ function MainAppShell() {
     }
   }, [currentScreen]);
 
-  const MAIN_TABS = ['home', 'sounds', 'settings'];
+  const MAIN_TABS = ['profile', 'home', 'sounds', 'settings'];
   const scrollViewRef = useRef(null);
-  const scrollX = useRef(new Animated.Value(0)).current;
   const screenWidth = Dimensions.get('window').width;
+  const initialTabIndex = MAIN_TABS.indexOf(currentScreen) !== -1 ? MAIN_TABS.indexOf(currentScreen) : 1;
+  const scrollX = useRef(new Animated.Value(initialTabIndex * screenWidth)).current;
+
+  // Sync scroll position whenever currentScreen changes
+  useEffect(() => {
+    const targetIndex = MAIN_TABS.indexOf(currentScreen);
+    if (targetIndex !== -1) {
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({ x: targetIndex * screenWidth, animated: true });
+      }
+      scrollX.setValue(targetIndex * screenWidth);
+    }
+  }, [currentScreen]);
 
   // Navigate helper with smooth horizontal scrolling
   const navigateTo = (screen) => {
@@ -310,6 +348,7 @@ function MainAppShell() {
     if (targetIndex !== -1 && scrollViewRef.current) {
       setCurrentScreen(screen);
       scrollViewRef.current.scrollTo({ x: targetIndex * screenWidth, animated: true });
+      scrollX.setValue(targetIndex * screenWidth);
     } else {
       setCurrentScreen(screen);
     }
@@ -460,7 +499,7 @@ function MainAppShell() {
     }
   };
 
-  const updateAlarm = (id, name, coords, r, sound) => {
+  const updateAlarm = (id, name, coords, r, sound, customName) => {
     const updated = alarms.map(a => {
       if (a.id === id) {
         return { 
@@ -468,7 +507,8 @@ function MainAppShell() {
           name, 
           coords, 
           radius: r, 
-          sound: sound || a.sound || activeTone || 'bark', 
+          sound: sound || a.sound || activeTone || 'bark',
+          customAudioName: customName !== undefined ? customName : (a.customAudioName || ''),
           isActive: true 
         };
       }
@@ -768,6 +808,18 @@ function MainAppShell() {
           />
         );
 
+      case 'profile':
+        return (
+          <ProfileScreen
+            userProfile={userProfile}
+            onSaveProfile={saveUserProfile}
+            onNavigate={navigateTo}
+            companionType={companionType}
+            companionName={companionName || 'Rum'}
+            showMascotTips={showMascotTips}
+          />
+        );
+
       default:
         return null;
     }
@@ -820,12 +872,24 @@ function MainAppShell() {
           scrollEnabled={false}
           showsHorizontalScrollIndicator={false}
           scrollEventThrottle={16}
+          contentOffset={{ x: (MAIN_TABS.indexOf(currentScreen) !== -1 ? MAIN_TABS.indexOf(currentScreen) : 1) * screenWidth, y: 0 }}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
             { useNativeDriver: false }
           )}
           style={{ flex: 1 }}
         >
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <ProfileScreen
+              userProfile={userProfile}
+              onSaveProfile={saveUserProfile}
+              onNavigate={navigateTo}
+              companionType={companionType}
+              companionName={companionName || 'Rum'}
+              showMascotTips={showMascotTips}
+            />
+          </View>
+
           <View style={{ width: screenWidth, flex: 1 }}>
             <HomeScreen
               alarms={alarms}
@@ -895,6 +959,14 @@ function MainAppShell() {
           scrollX={scrollX}
         />
       )}
+
+      {/* Mandatory Initial Profile Setup Modal Popup */}
+      <ProfileSetupModal
+        visible={currentScreen !== 'splash' && !userProfile.isProfileSetup}
+        onSaveProfile={saveUserProfile}
+        companionType={companionType}
+        companionName={companionName || 'Rum'}
+      />
     </SafeAreaView>
   );
 }
